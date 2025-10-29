@@ -70,6 +70,15 @@
   }
 
   const fmtIDR = (n) => (isFinite(n) ? Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 }) : '-');
+  // Khusus Price (IDR): jika jumlah digit integer < 3 (contoh < 100), tampilkan 2 angka di belakang koma
+  const fmtIDRPrice = (n) => {
+    if (!isFinite(n)) return '-';
+    const intDigits = String(Math.floor(Math.abs(n))).length;
+    if (intDigits < 3) {
+      return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 });
+  };
 
   // detect BASE from URL: /trade/SYMBOL_BASE?...
   function getBaseCurrency() {
@@ -220,7 +229,7 @@
           ${data.map(d => `
             <tr data-side="${side}" data-price="${d.rawPrice}" style="cursor:pointer;">
               <td style="padding:6px; text-align:left; color:${side==='asks'?'#ff6666':'#66ff66'};">${d.rawPrice}</td>
-              <td style="text-align:right;">${fmtIDR(d.idrPrice)}</td>
+              <td style="text-align:right;">${fmtIDRPrice(d.idrPrice)}</td>
               <td style="text-align:right;">${fmtIDR(d.volIDR)}</td>
             </tr>
           `).join('')}

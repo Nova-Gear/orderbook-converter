@@ -50,6 +50,15 @@
   function fmtIDR(n) {
     return isFinite(n) ? Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 }) : '-';
   }
+  // Khusus Price (IDR): jika jumlah digit integer < 3 (contoh < 100), tampilkan 2 angka di belakang koma
+  function fmtIDRPrice(n) {
+    if (!isFinite(n)) return '-';
+    const intDigits = String(Math.floor(Math.abs(n))).length;
+    if (intDigits < 3) {
+      return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 });
+  }
 
   // --- detect base from URL (KuCoin uses - between symbols) ---
   function getBaseCurrency() {
@@ -260,7 +269,7 @@
           ${data.map(d => `
             <tr data-side="${side}" data-price="${d.rawPrice}" style="cursor:pointer;">
               <td style="padding:6px; text-align:left; color:${side==='sell' ? '#ff6666' : '#66ff66'};">${d.rawPrice}</td>
-              <td style="text-align:right;">${fmtIDR(d.idrPrice)}</td>
+              <td style="text-align:right;">${fmtIDRPrice(d.idrPrice)}</td>
               <td style="text-align:right;">${fmtIDR(d.volIDR)}</td>
             </tr>
           `).join('')}

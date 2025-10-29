@@ -98,6 +98,15 @@
   }
 
   const fmtIDR = (n) => (isFinite(n) ? n.toLocaleString('id-ID', { maximumFractionDigits: 0 }) : '-');
+  // Khusus Price (IDR): jika jumlah digit integer < 3 (contoh < 100), tampilkan 2 angka di belakang koma
+  const fmtIDRPrice = (n) => {
+    if (!isFinite(n)) return '-';
+    const intDigits = String(Math.floor(Math.abs(n))).length; // jumlah digit bagian integer
+    if (intDigits < 3) {
+      return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 });
+  };
 
   // --- modal UI ---
   const modal = document.createElement('div');
@@ -246,7 +255,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="padding:4px;text-align:left;color:${color};cursor:pointer;">${r.rawPrice}</td>
-        <td style="padding:4px;text-align:right">${fmtIDR(r.idrPrice)}</td>
+        <td style="padding:4px;text-align:right">${fmtIDRPrice(r.idrPrice)}</td>
         <td style="padding:4px;text-align:right">${fmtIDR(r.volIDR)}</td>`;
       tr.addEventListener('click', () => handleRowClick(side, r.price));
       body.appendChild(tr);
