@@ -90,7 +90,9 @@
       fontSize: '12px',
       zIndex: 999999,
       padding: '10px',
-      backdropFilter: 'blur(4px)'
+      backdropFilter: 'blur(4px)',
+      resize: 'both',
+      overflow: 'auto',
     });
     document.body.appendChild(modal);
   } else {
@@ -261,7 +263,7 @@
         <thead style="position:sticky; top:0; background:#333; z-index:3;">
           <tr style="text-align:right;">
             <th style="text-align:left; padding:6px;">price (${BASE})</th>
-            <th>price (IDR)</th>
+            <th style="color:#ffd966;">price (IDR)</th>
             <th>vol (IDR)</th>
           </tr>
         </thead>
@@ -269,7 +271,7 @@
           ${data.map(d => `
             <tr data-side="${side}" data-price="${d.rawPrice}" style="cursor:pointer;">
               <td style="padding:6px; text-align:left; color:${side==='sell' ? '#ff6666' : '#66ff66'};">${d.rawPrice}</td>
-              <td style="text-align:right;">${fmtIDRPrice(d.idrPrice)}</td>
+              <td style="text-align:right; color:#ffd966;">${fmtIDRPrice(d.idrPrice)}</td>
               <td style="text-align:right;">${fmtIDR(d.volIDR)}</td>
             </tr>
           `).join('')}

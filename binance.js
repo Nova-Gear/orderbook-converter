@@ -125,6 +125,8 @@
     zIndex: 999999,
     padding: '10px',
     backdropFilter: 'blur(6px)',
+    resize: 'both',
+    overflow: 'auto',
   });
 
   const header = document.createElement('div');
@@ -159,7 +161,7 @@
       <thead>
         <tr style="background:#444;text-align:right;position:sticky;top:0;z-index:5;">
           <th style="text-align:left;padding:4px;">price (${BASE})</th>
-          <th>price (IDR)</th>
+          <th style="color:#ffd966;">price (IDR)</th>
           <th>vol (IDR)</th>
         </tr>
       </thead>
@@ -255,8 +257,8 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="padding:4px;text-align:left;color:${color};cursor:pointer;">${r.rawPrice}</td>
-        <td style="padding:4px;text-align:right">${fmtIDRPrice(r.idrPrice)}</td>
-        <td style="padding:4px;text-align:right">${fmtIDR(r.volIDR)}</td>`;
+        <td style="padding:4px;text-align:right;color:#ffd966;">${fmtIDRPrice(r.idrPrice)}</td>
+        <td style="padding:4px;text-align:right;">${fmtIDR(r.volIDR)}</td>`;
       tr.addEventListener('click', () => handleRowClick(side, r.price));
       body.appendChild(tr);
     }
