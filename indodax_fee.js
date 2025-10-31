@@ -99,7 +99,7 @@
 
     /** Update isi fee di elemen */
     function displayFee(coin, fee, rate) {
-        const feeInIDR = (fee * rate).toFixed(0);
+        const feeInIDR = (fee * rate);
         const formattedFeeInIDR = feeInIDR.toLocaleString('en-US', { maximumFractionDigits: 0 });
         const feeDisplay = ensureFeeDisplay();
         if (!feeDisplay) return;
