@@ -100,9 +100,10 @@
     /** Update isi fee di elemen */
     function displayFee(coin, fee, rate) {
         const feeInIDR = (fee * rate).toFixed(0);
+        const formattedFeeInIDR = feeInIDR.toLocaleString('en-US', { maximumFractionDigits: 0 });
         const feeDisplay = ensureFeeDisplay();
         if (!feeDisplay) return;
-        feeDisplay.textContent = `Fee: ${fee} ${coin} (~IDR ${feeInIDR.toLocaleString()})`;
+        feeDisplay.textContent = `Fee: ${fee} ${coin} (~IDR ${formattedFeeInIDR})`;
     }
 
     /** Jalankan fetch dan tampilkan */
