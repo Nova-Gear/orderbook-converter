@@ -73,10 +73,17 @@
   // Khusus Price (IDR): jika jumlah digit integer < 3 (contoh < 100), tampilkan 2 angka di belakang koma
   const fmtIDRPrice = (n) => {
     if (!isFinite(n)) return '-';
-    const intDigits = String(Math.floor(Math.abs(n))).length;
-    if (intDigits < 3) {
+    const absN = Math.abs(n);
+    const intDigits = String(Math.floor(absN)).length; // jumlah digit bagian integer
+    // Jika harga IDR < 1, tampilkan 6 angka di belakang koma
+    if (absN < 1) {
+      return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+    }
+    // Jika jumlah digit integer < 4 (contoh: 123, 999), tampilkan 2 angka di belakang koma
+    if (intDigits < 4) {
       return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
+    // Selebihnya tampilkan tanpa desimal
     return Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 });
   };
 
