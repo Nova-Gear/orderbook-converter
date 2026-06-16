@@ -53,9 +53,9 @@
   };
 
   function updateTableHeaders() {
-      const ths = modal.querySelectorAll('thead th:first-child');
-      ths.forEach(th => th.textContent = `price (${BASE})`);
-    }
+    const ths = modal.querySelectorAll('thead th:first-child');
+    ths.forEach(th => th.textContent = `price (${BASE})`);
+  }
 
   // --- precision detector ---
   function detectPrecision() {
@@ -82,6 +82,7 @@
   function parseNumber(str) {
     if (!str) return NaN;
     str = String(str).trim();
+
     let mult = 1;
     const suf = str.match(/([KMB])$/i);
     if (suf) {
@@ -91,8 +92,39 @@
       if (s === 'B') mult = 1e9;
       str = str.slice(0, -1).trim();
     }
+
+    // Menghapus spasi agar rapi
     str = str.replace(/\u00A0/g, '').replace(/\s+/g, '');
-    str = str.replace(/\./g, '').replace(/,/g, '.');
+
+    // PERBAIKAN: Hanya hapus koma (,), biarkan titik (.) tetap ada
+    str = str.replace(/,/g, '');
+
+    const num = parseFloat(str);
+    return isFinite(num) ? num * mult : NaN;
+  }
+
+  // --- helper: parse number price ---
+  function parseNumberPrice(str) {
+    if (!str) return NaN;
+    str = String(str).trim();
+
+    let mult = 1;
+    const suf = str.match(/([KMB])$/i);
+    if (suf) {
+      const s = suf[1].toUpperCase();
+      if (s === 'K') mult = 1e3;
+      if (s === 'M') mult = 1e6;
+      if (s === 'B') mult = 1e9;
+      str = str.slice(0, -1).trim();
+    }
+
+    // Hapus spasi dan non-breaking space
+    str = str.replace(/\u00A0/g, '').replace(/\s+/g, '');
+
+    // PERUBAHAN DI SINI:
+    // Hapus koma (pemisah ribuan), biarkan titik (pemisah desimal)
+    str = str.replace(/,/g, '');
+
     const num = parseFloat(str);
     return isFinite(num) ? num * mult : NaN;
   }
@@ -108,7 +140,7 @@
       return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
     }
     // Jika jumlah digit integer < 4 (contoh: 123, 999), tampilkan 2 angka di belakang koma
-    if (intDigits < 4) {
+    if (intDigits <= 4) {
       return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     // Selebihnya tampilkan tanpa desimal
@@ -242,7 +274,7 @@
     for (const r of rows) {
       const d = r.querySelectorAll('div');
       if (d.length < 2) continue;
-      const price = parseNumber(d[0].textContent);
+      const price = parseNumberPrice(d[0].textContent);
       const vol = parseNumber(d[1].textContent);
       if (!isNaN(price) && !isNaN(vol)) {
         data.push({
