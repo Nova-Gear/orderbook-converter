@@ -7,6 +7,8 @@
 // @match        https://www.gate.com/*/trade/*
 // @match        https://www.kucoin.com/*/trade/*
 // @grant        GM_xmlhttpRequest
+// @connect      192.168.1.170
+// @connect      localhost
 // ==/UserScript==
 
 (function() {
@@ -108,20 +110,20 @@
         return { exchange, coin };
     }
 
-    // --- fetch kurs IDR dari Indodax ---
+    // --- fetch kurs IDR dari server lokal ---
     function fetchUSDTtoIDR() {
         return new Promise((resolve) => {
             GM_xmlhttpRequest({
                 method: 'GET',
-                url: 'https://indodax.com/api/ticker/usdtidr',
+                url: 'http://192.168.1.170:5173/rates?bases=USDT',
                 onload: (res) => {
                     try {
                         const json = JSON.parse(res.responseText);
-                        const last = parseFloat(json.ticker?.last);
-                        if (!isNaN(last) && last > 1000) resolve(last);
+                        const last = parseFloat(json.rates?.USDT);
+                        if (!isNaN(last) && last > 0) resolve(last);
                         else resolve(0);
                     } catch (err) {
-                        console.warn('❌ Gagal parse kurs Indodax', err);
+                        console.warn('❌ Gagal parse kurs USDT', err);
                         resolve(0);
                     }
                 },

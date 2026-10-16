@@ -4,8 +4,10 @@
 // @version      1.2
 // @description  Mirror KuCoin orderbook to IDR, realtime DOM (data-item-type rows), click-to-fill, dynamic base + indodax rate.
 // @match        https://www.kucoin.com/*/trade/*
+// @match        https://www.kucoin.com/trade/*
 // @grant        GM_xmlhttpRequest
 // @connect      indodax.com
+// @connect      192.168.1.170
 // ==/UserScript==
 
 (function () {
@@ -15,7 +17,7 @@
   window.__KUCOIN_ORDERBOOK_IDR__ = true;
 
   // --- config ---
-  let RATE_IDR = 16500;
+  let RATE_IDR = 0;
   let PRICE_PRECISION = 2;
   const MAX_ROWS = 20;
   const REFRESH_INTERVAL = 30000;
@@ -52,19 +54,25 @@
   }
   // Khusus Price (IDR): jika jumlah digit integer < 3 (contoh < 100), tampilkan 2 angka di belakang koma
   const fmtIDRPrice = (n) => {
-    if (!isFinite(n)) return '-';
+    if (!isFinite(n) || n === null) return '-';
     const absN = Math.abs(n);
-    const intDigits = String(Math.floor(absN)).length; // jumlah digit bagian integer
-    // Jika harga IDR < 1, tampilkan 6 angka di belakang koma
-    if (absN < 1) {
-      return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+
+    // 1. Jika nilai sangat kecil (< 0.1), gunakan 6 digit
+    if (absN < 0.1) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
     }
-    // Jika jumlah digit integer < 4 (contoh: 123, 999), tampilkan 2 angka di belakang koma
-    if (intDigits < 4) {
-      return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // 2. Jika nilai antara 0.1 sampai 1000, gunakan 4 digit agar presisi terlihat
+    if (absN < 10) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
     }
-    // Selebihnya tampilkan tanpa desimal
-    return Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 });
+
+    if (absN < 1000) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // 3. Jika nilai ribuan (>= 1000), gunakan 2 digit
+    return n.toLocaleString('id-ID', { maximumFractionDigits: 0 });
   };
 
   // --- detect base from URL (KuCoin uses - between symbols) ---
@@ -168,30 +176,30 @@
     // side: 'sell' -> orderbook-list-sell, 'buy' -> orderbook-list-buy
     const containerSelector = side === 'sell' ? '.orderbook-list-sell' : '.orderbook-list-buy';
     const container = document.querySelector(containerSelector) || document.querySelector('[data-inspector="trade-orderbook-list"]') || document.body;
-  
+
     // Ambil semua elemen dengan data-orderbook-item, lalu gabungkan berdasarkan ID yang sama
     const nodes = Array.from(container.querySelectorAll('[data-orderbook-item]'));
     const byId = new Map();
-  
+
     for (const el of nodes) {
       const id = el.getAttribute('data-orderbook-item');
       if (!id) continue;
-  
+
       let g = byId.get(id);
       if (!g) {
         g = { id, type: null, priceText: null, amountText: null, totalText: null };
         byId.set(id, g);
       }
-  
+
       // Tentukan tipe side dari salah satu elemen dalam grup (sell/buy)
       const typeAttr = el.getAttribute('type') || el.closest('[type]')?.getAttribute('type') || null;
       if (typeAttr && !g.type) g.type = String(typeAttr).toLowerCase();
-  
+
       // Cari price/amount/total baik di elemen itu sendiri maupun di anaknya
       const priceEl = el.matches('[data-item-type="price"]') ? el : el.querySelector('[data-item-type="price"]');
       const amountEl = el.matches('[data-item-type="amount"]') ? el : el.querySelector('[data-item-type="amount"]');
       const totalEl = el.matches('[data-item-type="total"]') ? el : el.querySelector('[data-item-type="total"]');
-  
+
       if (!g.priceText && priceEl) g.priceText = priceEl.textContent.trim();
       if (!g.amountText && amountEl) g.amountText = amountEl.textContent.trim();
       if (!g.totalText) {
@@ -203,17 +211,17 @@
         }
       }
     }
-  
+
     const out = [];
     for (const g of byId.values()) {
       // Filter berdasarkan side yang diminta. Jika tidak ada type terdeteksi, kita percaya pada containerSelector.
       const t = g.type || '';
       if (side === 'sell' && t && !/sell/i.test(t)) continue;
       if (side === 'buy' && t && !/(buy|bid)/i.test(t)) continue;
-  
+
       const price = parseNumber(g.priceText);
       const amount = parseNumber(g.amountText);
-  
+
       if (!isNaN(price)) {
         out.push({
           rawPrice: g.priceText || '',
@@ -226,7 +234,7 @@
         });
       }
     }
-  
+
     // if no data found via data-orderbook-item (older/different render), fallback to searching price spans directly
     if (out.length === 0) {
       const priceSpans = Array.from(container.querySelectorAll('[data-item-type="price"]'));
@@ -257,7 +265,7 @@
         }
       }
     }
-  
+
     // sort high→low so display consistent
     out.sort((a, b) => b.price - a.price);
     return out.slice(0, MAX_ROWS);
@@ -277,7 +285,7 @@
         <tbody>
           ${data.map(d => `
             <tr data-side="${side}" data-price="${d.rawPrice}" style="cursor:pointer;">
-              <td style="padding:6px; text-align:left; color:${side==='sell' ? '#ff6666' : '#66ff66'};">${d.rawPrice}</td>
+              <td style="padding:6px; text-align:left; color:${side === 'sell' ? '#ff6666' : '#66ff66'};">${d.rawPrice}</td>
               <td style="text-align:right; color:#ffd966;">${fmtIDRPrice(d.idrPrice)}</td>
               <td style="text-align:right;">${fmtIDR(d.volIDR)}</td>
             </tr>
@@ -300,7 +308,7 @@
       return String(num);
     }
   }
-  
+
   // Helper untuk set value agar framework (React/KuxInputNumber) menangkap perubahan
   function setNativeInputValue(el, val) {
     try {
@@ -321,23 +329,23 @@
     const side = tr.dataset.side || tr.getAttribute('data-side') || 'buy';
     const priceNum = parseNumber(raw);
     if (isNaN(priceNum)) return;
-  
+
     const decimals = (typeof PRICE_PRECISION === 'number') ? PRICE_PRECISION : 2;
     const formattedForInput = formatKucoinInputValue(priceNum, decimals);
-  
+
     // Cari form berdasarkan side
     const formSelector = side === 'sell'
       ? '[data-inspector="trade-orderForm-form-sell"]'
       : '[data-inspector="trade-orderForm-form-buy"]';
     const form = document.querySelector(formSelector);
-  
+
     // Kandidat selector yang paling spesifik dulu (di dalam form)
     const scopedSelectors = form ? [
       '#price input.KuxInputNumber-input',
       'input.KuxInputNumber-input',
       '#price input',
     ] : [];
-  
+
     // Fallback global kalau scoped tidak ketemu
     const globalSelectors = [
       'div#price input.KuxInputNumber-input',
@@ -350,16 +358,16 @@
       'input[class*="price"]',
       'input[type="text"]'
     ];
-  
+
     let filled = false;
-  
+
     function tryFill(el) {
       if (!el) return false;
       try {
         el.focus();
         setNativeInputValue(el, formattedForInput);
         // Beri event agar React/KuxInputNumber menangkap perubahan
-        try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: formattedForInput })); } catch {}
+        try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: formattedForInput })); } catch { }
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
@@ -367,7 +375,7 @@
         return false;
       }
     }
-  
+
     // Prioritas: scoped dulu, lalu global
     for (const sel of scopedSelectors) {
       const el = form.querySelector(sel);
@@ -379,7 +387,7 @@
         if (tryFill(el)) { filled = true; break; }
       }
     }
-  
+
     // Jika masih belum berhasil, coba cari input di panel buy/sell secara umum
     if (!filled) {
       const panel = side === 'sell'
@@ -388,7 +396,7 @@
       const el = panel?.querySelector('input[type="text"], input[type="number"], input.KuxInputNumber-input');
       if (tryFill(el)) filled = true;
     }
-  
+
     console.log('KuCoin row click -> set price =', formattedForInput, 'side:', side, 'filled:', filled);
   }
 
@@ -421,23 +429,29 @@
   }
   detectPrecisionOnce();
 
-  // --- update RATE via Indodax (use BASE -> PAIR_MAP) ---
+  // --- update RATE via local server (use BASE) ---
   function updateRate() {
-    const ticker = PAIR_MAP[BASE] || 'usdtidr';
+    const targetBase = (BASE || 'USDT').toUpperCase();
+    const url = targetBase === 'USDT'
+      ? 'http://192.168.1.170:5173/rates?bases=USDT'
+      : `http://192.168.1.170:5173/rates?bases=${targetBase},USDT`;
     try {
       GM_xmlhttpRequest({
         method: 'GET',
-        url: `https://indodax.com/api/ticker/${ticker}`,
+        url: url,
         onload: function (res) {
           try {
             const json = JSON.parse(res.responseText || '{}');
-            const last = parseFloat(json.ticker?.last);
+            const rawRate = json.rates?.[targetBase] ?? json.rates?.[BASE] ?? json.rates?.USDT;
+            const last = parseFloat(rawRate);
             if (!isNaN(last) && last > 0) {
               RATE_IDR = last;
               updateUI();
+            } else {
+              console.warn('❌ Kurs untuk BASE tidak ditemukan:', json);
             }
           } catch (e) {
-            console.warn('Failed parse indodax', e);
+            console.warn('Failed parse rates', e);
           }
         },
         onerror: function (err) {

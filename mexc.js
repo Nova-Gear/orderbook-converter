@@ -3,16 +3,18 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.2
 // @description  MEXC orderbook IDR conversion (Binance-style, fixed selectors)
+// @match        https://www.mexc.com/exchange/*
 // @match        https://www.mexc.com/*/exchange/*
 // @match        https://www.mexc.fm/*/exchange/*
 // @grant        GM_xmlhttpRequest
 // @connect      indodax.com
+// @connect      192.168.1.170
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  let RATE_IDR = 16500;
+  let RATE_IDR = 0;
   let PRICE_PRECISION = 2;
   const MAX_ROWS = 20;
   const REFRESH_INTERVAL = 30000;
@@ -170,18 +172,29 @@
   // 💱 Kurs
   // ======================
   function updateRate() {
-    const ticker = PAIR_MAP[BASE] || 'usdtidr';
+    const targetBase = (BASE || 'USDT').toUpperCase();
+    const url = targetBase === 'USDT'
+      ? 'http://192.168.1.170:5173/rates?bases=USDT'
+      : `http://192.168.1.170:5173/rates?bases=${targetBase},USDT`;
     GM_xmlhttpRequest({
       method: 'GET',
-      url: `https://indodax.com/api/ticker/${ticker}`,
+      url: url,
       onload: res => {
-        const j = JSON.parse(res.responseText);
-        const last = parseFloat(j.ticker?.last);
-        if (last) {
-          RATE_IDR = last;
-          info.textContent = `1 ${BASE} = ${fmtIDR(RATE_IDR)} IDR`;
-          update();
+        try {
+          const j = JSON.parse(res.responseText || '{}');
+          const rawRate = j.rates?.[targetBase] ?? j.rates?.[BASE] ?? j.rates?.USDT;
+          const last = parseFloat(rawRate);
+          if (last) {
+            RATE_IDR = last;
+            info.textContent = `1 ${BASE} = ${fmtIDR(RATE_IDR)} IDR`;
+            update();
+          }
+        } catch (e) {
+          console.warn('❌ Gagal parse kurs dari server lokal', e);
         }
+      },
+      onerror: err => {
+        console.warn('❌ Gagal request kurs server lokal', err);
       }
     });
   }

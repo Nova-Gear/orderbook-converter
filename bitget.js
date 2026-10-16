@@ -1,187 +1,379 @@
 // ==UserScript==
-// @name         Bitget Orderbook to IDR Modal (LIGHT & FAST, ASK BOTTOM, Fill Input)
+// @name         Bitget Orderbook → IDR Modal (Realtime, Click-to-Fill)
 // @namespace    http://tampermonkey.net/
-// @version      1.7
-// @description  Bitget orderbook IDR conversion, faster update, ask cheapest at bottom, fill price input
-// @match        https://www.bitget.com/spot/*
+// @version      1.0
+// @description  Convert Bitget orderbook to IDR in a draggable modal, realtime via DOM, click row to fill input (supports base currency & indodax rate)
+// @match        *://*.bitgetapp.com/*/spot/*
+// @match        *://*.bitgetapp.com/*/trade/*
 // @grant        GM_xmlhttpRequest
 // @connect      indodax.com
+// @connect      192.168.1.170
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    let RATE_IDR = 16500;
+    // Prevent double-init
+    if (window.__BITGET_ORDERBOOK_IDR_MODAL__) return;
+    window.__BITGET_ORDERBOOK_IDR_MODAL__ = true;
+
+    // Config
+    let RATE_IDR = 0;
     let PRICE_PRECISION = 2;
     const MAX_ROWS = 20;
-    const ORDER_UPDATE_INTERVAL = 800;
-    const RATE_UPDATE_INTERVAL = 30000;
+    const REFRESH_INTERVAL = 30000;
+    const DEBOUNCE_MS = 150;
+    const PAIR_MAP = { USDT: 'usdtidr', USDC: 'usdcidr', BTC: 'btcidr', ETH: 'ethidr', BGB: 'bgbidr' };
 
-    let BASE = getBaseCurrency();
-    let lastOrders = { bids: [], asks: [] };
-
-    function getBaseCurrency() {
-        const m = location.pathname.match(/trade\/([A-Z0-9]+)_([A-Z0-9]+)/i);
-        return m ? m[2].toUpperCase() : 'USDT';
-    }
-
-    const PAIR_MAP = { USDT: 'usdtidr', BTC: 'btcidr', ETH: 'ethidr', BNB: 'bnbidr' };
-
+    // Util: parse number (handles K/M/B suffixes and various comma/dot formats)
     function parseNumber(str) {
-        if (!str) return NaN;
-        let mult = 1;
+        if (!str && str !== 0) return NaN;
         str = String(str).trim();
+        let mult = 1;
         const suf = str.match(/([KMB])$/i);
         if (suf) {
-            if (suf[1].toUpperCase() === 'K') mult = 1e3;
-            if (suf[1].toUpperCase() === 'M') mult = 1e6;
-            if (suf[1].toUpperCase() === 'B') mult = 1e9;
-            str = str.slice(0, -1);
+            const s = suf[1].toUpperCase();
+            if (s === 'K') mult = 1e3;
+            if (s === 'M') mult = 1e6;
+            if (s === 'B') mult = 1e9;
+            str = str.slice(0, -1).trim();
         }
-        str = str.replace(/\u00A0/g, '').replace(/,/g, '');
-        const n = parseFloat(str);
-        return isFinite(n) ? n * mult : NaN;
+        str = str.replace(/\u00A0/g, '').replace(/\s+/g, '');
+        if (str.indexOf(',') > -1 && str.indexOf('.') > -1) {
+            const lastDot = str.lastIndexOf('.');
+            const lastComma = str.lastIndexOf(',');
+            if (lastDot > lastComma) {
+                str = str.replace(/,/g, '');
+            } else {
+                str = str.replace(/\./g, '').replace(/,/g, '.');
+            }
+        } else {
+            if (str.indexOf(',') > -1) {
+                str = str.replace(/\./g, '');
+                str = str.replace(/,/g, '.');
+            }
+        }
+        const m = str.match(/-?[\d]+(?:\.\d+)?(?:[eE][+-]?\d+)?/);
+        const v = m ? parseFloat(m[0]) : NaN;
+        return isFinite(v) ? v * mult : NaN;
     }
 
-    const fmtIDR = n => isFinite(n) ? n.toLocaleString('id-ID', { maximumFractionDigits: 0 }) : '-';
-    const fmtIDRPrice = n => {
-        if (!isFinite(n)) return '-';
-        if (n < 1) return n.toLocaleString('id-ID', { minimumFractionDigits: 6 });
-        if (n < 1000) return n.toLocaleString('id-ID', { minimumFractionDigits: 2 });
+    // Formatting helpers
+    const fmtIDR = (n) => (isFinite(n) ? Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 }) : '-');
+    const fmtIDRPrice = (n) => {
+        if (!isFinite(n) || n === null) return '-';
+        const absN = Math.abs(n);
+        if (absN < 0.1) return n.toLocaleString('id-ID', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+        if (absN < 10) return n.toLocaleString('id-ID', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+        if (absN < 1000) return n.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         return n.toLocaleString('id-ID', { maximumFractionDigits: 0 });
     };
 
-    // =================== Modal ===================
-    const modal = document.createElement('div');
-    Object.assign(modal.style, {
-        position: 'fixed', right: '20px', top: '120px', width: '420px',
-        background: 'rgba(30,30,30,0.95)', color: '#f0f0f0',
-        border: '1px solid #555', borderRadius: '8px',
-        zIndex: 999999, padding: '10px',
-        fontFamily: 'Consolas, monospace', fontSize: '12px',
-        resize: 'both', overflow: 'auto',
-    });
+    // Extract base currency from URL
+    function getBaseCurrency() {
+        const match = window.location.href.match(/\/spot\/[A-Z0-9]*?(USDT|USDC|BGB|ETH|BTC|IDR)(?:\?|$)/i);
+        if (!match) return 'USDT';
+        return match[1].toUpperCase();
+    }
+    let BASE = getBaseCurrency();
 
+    // Create Modal UI safely
+    function createModal() {
+        let modal = document.getElementById('bitget-orderbook-idr-modal');
+        if (modal) return modal;
+
+        modal = document.createElement('div');
+        modal.id = 'bitget-orderbook-idr-modal';
+        Object.assign(modal.style, {
+            position: 'fixed',
+            right: '20px',
+            top: '120px',
+            width: '420px',
+            background: 'rgba(30,30,30,0.95)',
+            color: '#f0f0f0',
+            border: '1px solid #555',
+            borderRadius: '8px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
+            fontFamily: 'Consolas, monospace',
+            fontSize: '12px',
+            zIndex: 9999999, // Ekstra tinggi agar tidak tertimpa layout Bitget
+            padding: '10px',
+            backdropFilter: 'blur(6px)',
+            resize: 'both',
+            overflow: 'auto',
+        });
+
+        // Fallback jika document.body belum siap (meskipun @run-at document-end sudah dipakai)
+        if (document.body) {
+            document.body.appendChild(modal);
+        } else {
+            document.documentElement.appendChild(modal);
+        }
+        return modal;
+    }
+
+    const modal = createModal();
+
+    // Modal Elements Construction
     const header = document.createElement('div');
-    header.textContent = `Bitget Orderbook → IDR (kurs 1 ${BASE})`;
-    Object.assign(header.style, { cursor: 'move', fontWeight: 'bold', marginBottom: '6px', color: '#ffcc00', userSelect: 'none' });
+    header.style.cursor = 'move';
+    header.style.fontWeight = 'bold';
+    header.style.paddingBottom = '6px';
+    header.style.borderBottom = '1px solid #555';
+    header.style.marginBottom = '8px';
+    header.style.color = '#ffcc00';
+    header.textContent = `Bitget Orderbook → IDR (1 ${BASE})`;
+    modal.appendChild(header);
+
+    const asksTitle = document.createElement('div');
+    asksTitle.textContent = 'ASKS';
+    asksTitle.style.fontWeight = 'bold';
+    asksTitle.style.color = '#ff6060';
+    asksTitle.style.margin = '6px 0 2px';
+    modal.appendChild(asksTitle);
+
+    const asksWrap = document.createElement('div');
+    Object.assign(asksWrap.style, { maxHeight: '220px', overflowY: 'auto' });
+    modal.appendChild(asksWrap);
 
     const info = document.createElement('div');
-    info.style.fontSize = '11px'; info.style.opacity = '0.8';
+    info.style.fontSize = '11px';
+    info.style.opacity = '0.85';
+    info.style.marginTop = '6px';
+    info.textContent = `Info kurs: 1 ${BASE} = ${fmtIDR(RATE_IDR)} IDR`;
+    modal.appendChild(info);
 
-    function makeTable() {
-        const t = document.createElement('table');
-        t.style.width = '100%'; t.style.borderCollapse = 'collapse';
-        t.innerHTML = `<thead>
-        <tr style="background:#444">
-          <th style="text-align:left;padding:4px">price (${BASE})</th>
-          <th style="padding:4px">price (IDR)</th>
-          <th style="padding:4px">vol (IDR)</th>
-        </tr></thead><tbody></tbody>`;
-        return t;
-    }
+    const bidsTitle = document.createElement('div');
+    bidsTitle.textContent = 'BIDS';
+    bidsTitle.style.fontWeight = 'bold';
+    bidsTitle.style.color = '#60ff60';
+    bidsTitle.style.margin = '6px 0 2px';
+    modal.appendChild(bidsTitle);
 
-    const asksTable = makeTable();
-    const bidsTable = makeTable();
-    modal.append(header, asksTable, info, bidsTable);
-    document.body.appendChild(modal);
+    const bidsWrap = document.createElement('div');
+    Object.assign(bidsWrap.style, { maxHeight: '220px', overflowY: 'auto' });
+    modal.appendChild(bidsWrap);
 
-    // drag
-    (function drag(el, handle){
-        let sx=0,sy=0,drag=false;
-        handle.addEventListener('pointerdown', e=>{drag=true; sx=e.clientX-el.offsetLeft; sy=e.clientY-el.offsetTop; handle.setPointerCapture(e.pointerId); e.preventDefault();});
-        window.addEventListener('pointermove', e=>{if(drag){el.style.left=e.clientX-sx+'px'; el.style.top=e.clientY-sy+'px'; el.style.right='auto';}});
-        window.addEventListener('pointerup', ()=>drag=false);
+    // Make Modal Draggable
+    (function makeDraggable(el, handle) {
+        let offsetX = 0, offsetY = 0, dragging = false;
+        handle.addEventListener('pointerdown', (e) => {
+            dragging = true;
+            offsetX = e.clientX - el.getBoundingClientRect().left;
+            offsetY = e.clientY - el.getBoundingClientRect().top;
+            handle.setPointerCapture(e.pointerId);
+        });
+        window.addEventListener('pointermove', (e) => {
+            if (!dragging) return;
+            el.style.left = Math.max(0, e.clientX - offsetX) + 'px';
+            el.style.top = Math.max(0, e.clientY - offsetY) + 'px';
+            el.style.right = 'auto';
+        });
+        window.addEventListener('pointerup', () => (dragging = false));
     })(modal, header);
 
-    function detectPrecision() {
-        const el=document.querySelector('.last-price-value');
-        if(!el) return setTimeout(detectPrecision,1500);
-        const txt=el.textContent.trim();
-        if(txt.includes('.')) PRICE_PRECISION = txt.split('.')[1].replace(/0+$/,'').length || 1;
-    }
-    detectPrecision();
+    // [DIUBAH] Extract orderbook dari Bitget DOM menggunakan target background bar
+    function extractBitgetOrders(side) {
+        const isAsk = side === 'asks';
+        // Menargetkan class background depth Bitget yang lebih persisten
+        const targetBgClass = isAsk ? '.bg-contentTradeSell' : '.bg-contentTradeBuy';
 
-    // =================== Kurs ===================
-    function updateRate() {
-        const ticker = PAIR_MAP[BASE] || 'usdtidr';
-        GM_xmlhttpRequest({
-            method:'GET', url:`https://indodax.com/api/ticker/${ticker}`,
-            onload: res=>{
+        // Cari semua elemen bar volume background tersebut
+        const depthBars = Array.from(document.querySelectorAll(targetBgClass));
+
+        const out = [];
+        const seenPrices = new Set();
+
+        for (const bar of depthBars) {
+            // Bar tersebut berada sejajar dengan <ul> di dalam flex container
+            const parentDiv = bar.parentElement;
+            if (!parentDiv) continue;
+
+            const ul = parentDiv.querySelector('ul');
+            if (!ul) continue;
+
+            // Ambil isi <li> nya
+            const childElements = Array.from(ul.querySelectorAll('li'));
+
+            if (childElements.length >= 2) {
+                const priceRaw = childElements[0].textContent.trim();
+                const qtyRaw = childElements[1].textContent.trim();
+                const volRaw = childElements[2] ? childElements[2].textContent.trim() : '';
+
+                const price = parseNumber(priceRaw);
+                const qty = parseNumber(qtyRaw);
+
+                if (!isNaN(price) && !isNaN(qty) && price > 0 && !seenPrices.has(price)) {
+                    seenPrices.add(price);
+                    out.push({
+                        rawPrice: priceRaw,
+                        price,
+                        qty,
+                        volRaw,
+                        volIDR: price * qty * RATE_IDR,
+                        idrPrice: price * RATE_IDR,
+                    });
+                }
+            }
+        }
+
+        out.sort((a, b) => b.price - a.price);
+        return isAsk ? out.slice(-MAX_ROWS) : out.slice(0, MAX_ROWS);
+    }
+
+    // Render HTML Table
+    function createTableHTML(data, side) {
+        return `
+      <table style="width:100%; border-collapse:collapse;">
+        <thead style="position:sticky; top:0; background:#444; z-index:2;">
+          <tr style="text-align:right;">
+            <th style="text-align:left; padding:6px;">price (${BASE})</th>
+            <th style="color:#ffd966;">price (IDR)</th>
+            <th>vol (IDR)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.map(d => `
+            <tr data-side="${side}" data-price="${d.rawPrice}" style="cursor:pointer; border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding:6px; text-align:left; color:${side === 'asks' ? '#ff6666' : '#66ff66'};">${d.rawPrice}</td>
+              <td style="text-align:right; color:#ffd966;">${fmtIDRPrice(d.idrPrice)}</td>
+              <td style="text-align:right;">${fmtIDR(d.volIDR)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+    }
+
+    // Update UI logic
+    function updateUI() {
+        try {
+            const asks = extractBitgetOrders('asks');
+            const bids = extractBitgetOrders('bids');
+            asksWrap.innerHTML = createTableHTML(asks, 'asks');
+            bidsWrap.innerHTML = createTableHTML(bids, 'bids');
+
+            modal.querySelectorAll('tr[data-price]').forEach(tr => {
+                tr.removeEventListener('click', onRowClick);
+                tr.addEventListener('click', onRowClick);
+            });
+
+            info.textContent = `Info kurs: 1 ${BASE} = ${fmtIDR(RATE_IDR)} IDR`;
+            header.textContent = `Bitget Orderbook → IDR (1 ${BASE})`;
+        } catch (e) {
+            console.warn('Bitget IDR Script - Update UI error:', e);
+        }
+    }
+
+    // Click Handler to fill input
+    function onRowClick(e) {
+        const tr = e.currentTarget;
+        const priceRaw = tr.dataset.price;
+        const priceNum = parseNumber(priceRaw);
+        if (isNaN(priceNum)) return;
+
+        const formatted = priceNum.toFixed(PRICE_PRECISION);
+        const inputs = document.querySelectorAll('input[type="text"], input[inputmode="decimal"], input[inputmode="numeric"]');
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+
+        inputs.forEach(input => {
+            const isTradePanel = input.closest('[class*="trade"], [class*="order"], [class*="place"], [class*="form"], form');
+            if (isTradePanel) {
                 try {
-                    const j = JSON.parse(res.responseText);
-                    const last=parseFloat(j.ticker?.last);
-                    if(last){ RATE_IDR=last; info.textContent=`1 ${BASE} = ${fmtIDR(RATE_IDR)} IDR`; }
-                } catch(e){ console.log('Error parsing rate', e);}
+                    input.focus();
+                    nativeInputValueSetter.call(input, formatted);
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    input.dispatchEvent(new Event('blur', { bubbles: true }));
+                } catch (err) {
+                    console.warn('Failed to set input', err);
+                }
             }
         });
     }
+
+    // Detect Precision dynamically
+    function detectPrecisionOnce() {
+        try {
+            const candidate = document.querySelector('[data-testid="SpotTradeCurrentPriceButton"], .price, [class*="current-price"]');
+            if (candidate) {
+                const txt = candidate.textContent.trim();
+                const normalized = txt.replace(/\./g, '').replace(/,/g, '.').trim();
+                if (normalized.indexOf('.') > -1) {
+                    const decimals = normalized.split('.')[1].replace(/0+$/, '').length;
+                    if (decimals >= 0) PRICE_PRECISION = Math.max(0, decimals);
+                }
+            }
+        } catch (e) { /* ignore */ }
+    }
+    detectPrecisionOnce();
+
+    // Fetch Rate via local server
+    function updateRate() {
+        const targetBase = (BASE || 'USDT').toUpperCase();
+        const url = targetBase === 'USDT'
+            ? 'http://192.168.1.170:5173/rates?bases=USDT'
+            : `http://192.168.1.170:5173/rates?bases=${targetBase},USDT`;
+        try {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: url,
+                onload: function (res) {
+                    try {
+                        const j = JSON.parse(res.responseText || '{}');
+                        const rawRate = j.rates?.[targetBase] ?? j.rates?.[BASE] ?? j.rates?.USDT;
+                        const last = parseFloat(rawRate);
+                        if (!isNaN(last) && last > 0) {
+                            RATE_IDR = last;
+                            updateUI();
+                        } else {
+                            console.warn('❌ Kurs untuk BASE tidak ditemukan:', j);
+                        }
+                    } catch (e) {
+                        console.warn('Failed parse rates', e);
+                    }
+                },
+                onerror: function (err) {
+                    console.warn('GM_xmlhttpRequest error', err);
+                }
+            });
+        } catch (e) {
+            console.warn('GM_xmlhttpRequest not available', e);
+        }
+    }
     updateRate();
-    setInterval(updateRate,RATE_UPDATE_INTERVAL);
+    setInterval(updateRate, REFRESH_INTERVAL);
 
-    // =================== Extract & Render ===================
-    function extract(side){
-        const rows=document.querySelectorAll('div.flex > ul');
-        const data=[];
-        rows.forEach(ul=>{
-            const priceEl=ul.children[0], volEl=ul.children[1];
-            if(!priceEl||!volEl) return;
-            const bar=ul.parentElement.querySelector('div.absolute');
-            if(!bar) return;
-            const isBid=bar.classList.contains('bg-contentTradeBuy');
-            const isAsk=bar.classList.contains('bg-contentTradeSell');
-            if((side==='bid'&&!isBid)||(side==='ask'&&!isAsk)) return;
-            const price=parseNumber(priceEl.textContent);
-            const vol=parseNumber(volEl.textContent);
-            if(!isFinite(price)||!isFinite(vol)) return;
-            data.push({ rawPrice: priceEl.textContent.trim(), price, idrPrice: price*RATE_IDR, volIDR: price*vol*RATE_IDR });
-        });
-        return data.filter(d => isFinite(d.price));
+    // Observer
+    function debounce(fn, ms) {
+        let t;
+        return function () { clearTimeout(t); t = setTimeout(fn, ms); };
+    }
+    const debouncedUpdate = debounce(updateUI, DEBOUNCE_MS);
+
+    function initObserver() {
+        const mo = new MutationObserver(debouncedUpdate);
+        mo.observe(document.body, { subtree: true, childList: true, characterData: true });
+        updateUI();
     }
 
-    function render(tbl,data,color){
-        const body=tbl.querySelector('tbody'); body.innerHTML='';
-        data.forEach(r=>{
-            const tr=document.createElement('tr');
-            tr.innerHTML=`<td style="padding:4px;text-align:left;color:${color};cursor:pointer">${r.rawPrice}</td>
-                <td style="padding:4px;text-align:right;color:#ffd966">${fmtIDRPrice(r.idrPrice)}</td>
-                <td style="padding:4px;text-align:right">${fmtIDR(r.volIDR)}</td>`;
-            tr.onclick=()=>fillPrice(r.price);
-            body.appendChild(tr);
-        });
+    // Memastikan oberserver berjalan setelah DOM siap
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initObserver);
+    } else {
+        initObserver();
     }
 
-    // =================== FILL PRICE INPUT ===================
-    function fillPrice(price){
-        const v = price.toFixed(PRICE_PRECISION);
-        const input = document.querySelector('input[aria-label="coin number"]');
-        if(input){
-            input.value = v;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-    }
-
-    function updateOrders(){
-        let asks=extract('ask').slice(0,MAX_ROWS).sort((a,b)=>b.price-a.price); // cheapest at bottom
-        let bids=extract('bid').slice(0,MAX_ROWS).sort((a,b)=>b.price-a.price); // highest on top
-
-        if(JSON.stringify(asks)!==JSON.stringify(lastOrders.asks) || JSON.stringify(bids)!==JSON.stringify(lastOrders.bids)){
-            render(asksTable,asks,'#ff6666');
-            render(bidsTable,bids,'#66ff66');
-            lastOrders={asks,bids};
-        }
-    }
-    setInterval(updateOrders,ORDER_UPDATE_INTERVAL);
-
-    // =================== URL change watcher ===================
+    // Watch for SPA Navigation
     let lastUrl = location.href;
-    setInterval(()=>{
-        if(location.href!==lastUrl){
-            lastUrl=location.href; BASE=getBaseCurrency();
-            header.textContent=`Bitget Orderbook → IDR (kurs 1 ${BASE})`;
-            info.textContent=`Memuat kurs ${BASE}...`;
+    setInterval(() => {
+        if (location.href !== lastUrl) {
+            lastUrl = location.href;
+            BASE = getBaseCurrency();
+            detectPrecisionOnce();
             updateRate();
+            updateUI();
         }
-    },1000);
+    }, 1000);
 
 })();

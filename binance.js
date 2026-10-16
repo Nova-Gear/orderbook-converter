@@ -6,12 +6,13 @@
 // @match        https://www.binance.com/*/trade/*
 // @grant        GM_xmlhttpRequest
 // @connect      indodax.com
+// @connect      192.168.1.170
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  let RATE_IDR = 16500;
+  let RATE_IDR = 0;
   let PRICE_PRECISION = 2;
   const MAX_ROWS = 20;
   const REFRESH_INTERVAL = 30000;
@@ -130,21 +131,26 @@
   }
 
   const fmtIDR = (n) => (isFinite(n) ? n.toLocaleString('id-ID', { maximumFractionDigits: 0 }) : '-');
-  // Khusus Price (IDR): jika jumlah digit integer < 3 (contoh < 100), tampilkan 2 angka di belakang koma
   const fmtIDRPrice = (n) => {
-    if (!isFinite(n)) return '-';
+    if (!isFinite(n) || n === null) return '-';
     const absN = Math.abs(n);
-    const intDigits = String(Math.floor(absN)).length; // jumlah digit bagian integer
-    // Jika harga IDR < 1, tampilkan 6 angka di belakang koma
-    if (absN < 1) {
-      return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+
+    // 1. Jika nilai sangat kecil (< 0.1), gunakan 6 digit
+    if (absN < 0.1) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
     }
-    // Jika jumlah digit integer < 4 (contoh: 123, 999), tampilkan 2 angka di belakang koma
-    if (intDigits <= 4) {
-      return Number(n).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // 2. Jika nilai antara 0.1 sampai 1000, gunakan 4 digit agar presisi terlihat
+    if (absN < 10) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
     }
-    // Selebihnya tampilkan tanpa desimal
-    return Number(n).toLocaleString('id-ID', { maximumFractionDigits: 0 });
+
+    if (absN < 1000) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    // 3. Jika nilai ribuan (>= 1000), gunakan 2 digit
+    return n.toLocaleString('id-ID', { maximumFractionDigits: 0 });
   };
 
   // --- modal UI ---
@@ -240,24 +246,41 @@
 
   // --- kurs update ---
   function updateRate() {
-    const ticker = PAIR_MAP[BASE] || 'usdtidr';
+    const targetBase = (BASE || 'USDT').toUpperCase();
+    const url = targetBase === 'USDT'
+      ? 'http://192.168.1.170:5173/rates?bases=USDT'
+      : `http://192.168.1.170:5173/rates?bases=${targetBase},USDT`;
+
     GM_xmlhttpRequest({
       method: 'GET',
-      url: `https://indodax.com/api/ticker/${ticker}`,
+      url: url,
       onload: (res) => {
         try {
           const json = JSON.parse(res.responseText);
-          const last = parseFloat(json.ticker?.last);
-          if (!isNaN(last) && last > 1000) {
+          const rawRate = json.rates?.[targetBase] ?? json.rates?.[BASE] ?? json.rates?.USDT;
+          const last = parseFloat(rawRate);
+
+          if (!isNaN(last) && last > 0) {
             RATE_IDR = last;
             info.textContent = `Info kurs: 1 ${BASE} = ${fmtIDR(RATE_IDR)} IDR`;
             header.textContent = `Binance Orderbook → IDR (kurs 1 ${BASE} = ${fmtIDR(RATE_IDR)} IDR)`;
             update();
+          } else {
+            console.warn(`❌ Kurs untuk "${BASE}" tidak ditemukan dalam respons JSON:`, json);
           }
         } catch (err) {
-          console.warn('❌ Gagal parse kurs Indodax', err);
+          console.warn('❌ Gagal parse kurs dari server lokal', err);
         }
       },
+      onerror: (err) => {
+        console.warn('❌ Gagal melakukan request ke server lokal (Network Error / CORS)', err);
+      },
+      ontimeout: () => {
+        console.warn('❌ Request ke server lokal timeout');
+      },
+      onabort: () => {
+        console.warn('❌ Request dibatalkan');
+      }
     });
   }
   updateRate();
