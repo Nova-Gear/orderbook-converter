@@ -1,11 +1,14 @@
 // ==UserScript==
 // @name         MEXC Orderbook to IDR Modal (FULL FIX)
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  MEXC orderbook IDR conversion (Binance-style, fixed selectors)
 // @match        https://www.mexc.com/exchange/*
 // @match        https://www.mexc.com/*/exchange/*
+// @match        https://www.mexc.fm/exchange/*
 // @match        https://www.mexc.fm/*/exchange/*
+// @match        https://*.mexc.com/exchange/*
+// @match        https://*.mexc.com/*/exchange/*
 // @grant        GM_xmlhttpRequest
 // @connect      indodax.com
 // @connect      192.168.1.170
@@ -13,6 +16,10 @@
 
 (function () {
   'use strict';
+
+  // Prevent duplicate execution
+  if (window.__MEXC_ORDERBOOK_IDR_MODAL__) return;
+  window.__MEXC_ORDERBOOK_IDR_MODAL__ = true;
 
   let RATE_IDR = 0;
   let PRICE_PRECISION = 2;
@@ -25,13 +32,6 @@
     return m ? m[2].toUpperCase() : 'USDT';
   }
   let BASE = getBaseCurrency();
-
-  const PAIR_MAP = {
-    USDT: 'usdtidr',
-    BTC: 'btcidr',
-    ETH: 'ethidr',
-    BNB: 'bnbidr',
-  };
 
   setInterval(() => {
     if (location.href !== lastUrl) {
@@ -47,11 +47,14 @@
   }, 1000);
 
   function detectPrecision() {
-    const el = document.querySelector('[class*="lastPrice"]');
+    const el = document.querySelector(
+      '[class*="lastPrice"], [class*="currentPrice"], [data-testid*="price"], [class*="orderbookItem"] [class*="price"]'
+    );
     if (!el) return setTimeout(detectPrecision, 1500);
     const txt = el.textContent.trim();
     if (txt.includes('.')) {
       PRICE_PRECISION = txt.split('.')[1].replace(/0+$/, '').length || 1;
+      console.log('✅ [MEXC] Detected precision =', PRICE_PRECISION);
     }
   }
   detectPrecision();
@@ -76,14 +79,22 @@
     isFinite(n) ? n.toLocaleString('id-ID', { maximumFractionDigits: 0 }) : '-';
 
   const fmtIDRPrice = (n) => {
-    if (!isFinite(n)) return '-';
-    if (n < 1) return n.toLocaleString('id-ID', { minimumFractionDigits: 6 });
-    if (n < 1000) return n.toLocaleString('id-ID', { minimumFractionDigits: 2 });
+    if (!isFinite(n) || n === null) return '-';
+    const absN = Math.abs(n);
+    if (absN < 0.1) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
+    }
+    if (absN < 10) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+    }
+    if (absN < 1000) {
+      return n.toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
     return n.toLocaleString('id-ID', { maximumFractionDigits: 0 });
   };
 
   // ======================
-  // 🪟 Modal
+  // 🪟 Modal UI
   // ======================
   const modal = document.createElement('div');
   Object.assign(modal.style, {
@@ -99,6 +110,7 @@
     padding: '10px',
     fontFamily: 'Consolas, monospace',
     fontSize: '12px',
+    backdropFilter: 'blur(6px)',
     resize: 'both',
     overflow: 'auto',
   });
@@ -116,6 +128,15 @@
   const info = document.createElement('div');
   info.style.fontSize = '11px';
   info.style.opacity = '0.8';
+  info.style.margin = '4px 0';
+
+  const asksTitle = document.createElement('div');
+  Object.assign(asksTitle.style, { fontWeight: 'bold', color: '#ff6060', margin: '4px 0 2px' });
+  asksTitle.textContent = 'ASKS';
+
+  const bidsTitle = document.createElement('div');
+  Object.assign(bidsTitle.style, { fontWeight: 'bold', color: '#60ff60', margin: '6px 0 2px' });
+  bidsTitle.textContent = 'BIDS';
 
   function makeTable() {
     const t = document.createElement('table');
@@ -125,8 +146,8 @@
       <thead>
         <tr style="background:#444">
           <th style="text-align:left;padding:4px">price (${BASE})</th>
-          <th style="padding:4px">price (IDR)</th>
-          <th style="padding:4px">vol (IDR)</th>
+          <th style="padding:4px;text-align:right">price (IDR)</th>
+          <th style="padding:4px;text-align:right">vol (IDR)</th>
         </tr>
       </thead>
       <tbody></tbody>`;
@@ -136,12 +157,20 @@
   const asksTable = makeTable();
   const bidsTable = makeTable();
 
+  const asksWrap = document.createElement('div');
+  Object.assign(asksWrap.style, { maxHeight: '200px', overflowY: 'auto' });
+  asksWrap.appendChild(asksTable);
+
+  const bidsWrap = document.createElement('div');
+  Object.assign(bidsWrap.style, { maxHeight: '200px', overflowY: 'auto' });
+  bidsWrap.appendChild(bidsTable);
+
   function updateHeaders() {
     modal.querySelectorAll('thead th:first-child')
       .forEach(th => th.textContent = `price (${BASE})`);
   }
 
-  modal.append(header, asksTable, info, bidsTable);
+  modal.append(header, asksTitle, asksWrap, info, bidsTitle, bidsWrap);
   document.body.appendChild(modal);
 
   // ======================
@@ -202,39 +231,54 @@
   setInterval(updateRate, REFRESH_INTERVAL);
 
   // ======================
-  // 📊 Extract
+  // 📊 Extract Orderbook
   // ======================
   function extract(side) {
+    // 1. Cari wrapper asks / bids
     const wrapper = document.querySelector(
       side === 'ask'
-        ? '[class*="orderbook_asksWrapper"]'
-        : '[class*="orderbook_bidsWrapper"]'
+        ? '[class*="asksBox"], [class*="asks"], [class*="orderbook_asksWrapper"]'
+        : '[class*="bidsBox"], [class*="bids"], [class*="orderbook_bidsWrapper"]'
     );
-    if (!wrapper) return [];
 
-    const rows = wrapper.querySelectorAll('[class*="orderbook_orderbookItem"]');
+    let rows = [];
+    if (wrapper) {
+      rows = Array.from(wrapper.querySelectorAll('[class*="orderbookItem"], [class*="tableRow"]'));
+    }
+
+    // 2. Fallback jika wrapper tidak terdeteksi: filter by sell/buy class
+    if (rows.length === 0) {
+      const allRows = Array.from(document.querySelectorAll('[class*="orderbookItem"], [class*="tableRow"]'));
+      rows = allRows.filter(r => {
+        const isSell = r.querySelector('[class*="sell"], [class*="Sell"]');
+        const isBuy = r.querySelector('[class*="buy"], [class*="Buy"]');
+        return side === 'ask' ? isSell : isBuy;
+      });
+    }
+
     const data = [];
-
-    for (const r of Array.from(rows).slice(0, MAX_ROWS)) {
-      const priceEl = r.querySelector('[class*="orderbook_price"]');
-      const volEl = r.querySelector('[class*="orderbook_vol"] span');
-      if (!priceEl || !volEl) continue;
+    for (const r of rows) {
+      const priceEl = r.querySelector('[class*="price"]') || r.children[0];
+      const volEl = r.querySelector('[class*="amount"], [class*="vol"]') || r.children[1];
+      if (!priceEl) continue;
 
       const price = parseNumber(priceEl.textContent);
-      const vol = parseNumber(volEl.textContent);
-      if (!isFinite(price) || !isFinite(vol)) continue;
+      const vol = volEl ? parseNumber(volEl.textContent) : 0;
+      if (!isFinite(price) || isNaN(price)) continue;
 
       data.push({
         rawPrice: priceEl.textContent.trim(),
         price,
         idrPrice: price * RATE_IDR,
-        volIDR: price * vol * RATE_IDR,
+        volIDR: (isFinite(vol) && !isNaN(vol)) ? price * vol * RATE_IDR : 0,
       });
     }
-    return data;
+
+    data.sort((a, b) => b.price - a.price);
+    return data.slice(0, MAX_ROWS);
   }
 
-  function render(tbl, data, color) {
+  function render(tbl, data, color, side) {
     const body = tbl.querySelector('tbody');
     body.innerHTML = '';
 
@@ -250,34 +294,79 @@
         <td style="padding:4px;text-align:right">
           ${fmtIDR(r.volIDR)}
         </td>`;
-      tr.onclick = () => fillPrice(r.price);
+      tr.onclick = () => fillPrice(r.price, side);
       body.appendChild(tr);
     }
   }
 
-  function fillPrice(price) {
-    const v = price.toFixed(PRICE_PRECISION);
-    document.querySelectorAll('input[placeholder*="Price"]').forEach(i => {
-      i.value = v;
-      i.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+  // ======================
+  // ✍️ Click to Fill Price
+  // ======================
+  function fillPrice(price, side) {
+    try {
+      const v = price.toFixed(PRICE_PRECISION);
+      const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+
+      const buyInput = document.querySelector('input[data-testid="spot-trade-buyPrice"]');
+      const sellInput = document.querySelector('input[data-testid="spot-trade-sellPrice"]');
+      const fallbackInputs = Array.from(document.querySelectorAll('input[placeholder*="Price"], input[name*="price"]'));
+
+      const targets = [buyInput, sellInput, ...fallbackInputs].filter(Boolean);
+      const uniqueTargets = [...new Set(targets)];
+
+      uniqueTargets.forEach(input => {
+        try {
+          input.focus();
+          if (nativeSetter) {
+            nativeSetter.call(input, v);
+          } else {
+            input.value = v;
+          }
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        } catch (err) {
+          console.warn('Failed to set input value:', err);
+        }
+      });
+      console.log(`💡 MEXC click ${side || ''} → set price = ${v}`);
+    } catch (e) {
+      console.warn('⚠️ [MEXC] Error filling price:', e);
+    }
   }
 
   function update() {
-    render(asksTable, extract('ask'), '#ff6666');
-    render(bidsTable, extract('bid'), '#66ff66');
+    render(asksTable, extract('ask'), '#ff6666', 'ask');
+    render(bidsTable, extract('bid'), '#66ff66', 'bid');
+    if (asksWrap) asksWrap.scrollTop = asksWrap.scrollHeight;
   }
 
+  function debounce(fn, ms) {
+    let t;
+    return () => {
+      clearTimeout(t);
+      t = setTimeout(fn, ms);
+    };
+  }
+  const debouncedUpdate = debounce(update, 80);
+
   function initObserver() {
-    const root = document.querySelector('[class*="orderbook_tableBody"]');
+    const root =
+      document.querySelector('#spot-grid-orderBookDeals') ||
+      document.querySelector('[class*="orderbookDealsWrapper"]') ||
+      document.querySelector('[class*="orderbookWrapper"]') ||
+      document.querySelector('[class*="orderbook_tableBody"]') ||
+      document.querySelector('[class*="asksBox"]')?.closest('div') ||
+      document.body;
+
     if (!root) return setTimeout(initObserver, 1500);
 
-    new MutationObserver(update).observe(root, {
+    new MutationObserver(debouncedUpdate).observe(root, {
       childList: true,
       subtree: true,
       characterData: true,
     });
     update();
+    console.log('✅ [MEXC Orderbook IDR] Observer aktif');
   }
 
   initObserver();
