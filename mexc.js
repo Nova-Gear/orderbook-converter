@@ -163,10 +163,10 @@
     t.style.borderCollapse = 'collapse';
     t.innerHTML = `
       <thead>
-        <tr style="background:#444">
-          <th style="text-align:left;padding:4px">price (${BASE})</th>
-          <th style="padding:4px;text-align:right">price (IDR)</th>
-          <th style="padding:4px;text-align:right">vol (IDR)</th>
+        <tr style="background:#3a3a3a;">
+          <th style="position:sticky;top:0;background:#3a3a3a;text-align:left;padding:4px;z-index:5;box-shadow:0 1px 0 #555;">price (${BASE})</th>
+          <th style="position:sticky;top:0;background:#3a3a3a;padding:4px;text-align:right;color:#ffd966;z-index:5;box-shadow:0 1px 0 #555;">price (IDR)</th>
+          <th style="position:sticky;top:0;background:#3a3a3a;padding:4px;text-align:right;z-index:5;box-shadow:0 1px 0 #555;">vol (IDR)</th>
         </tr>
       </thead>
       <tbody></tbody>`;
