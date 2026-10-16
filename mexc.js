@@ -96,7 +96,24 @@
   // ======================
   // 🪟 Modal UI
   // ======================
+  const style = document.createElement('style');
+  style.textContent = `
+    #mexc-orderbook-idr-modal,
+    #mexc-orderbook-idr-modal * {
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    #mexc-orderbook-idr-modal::-webkit-scrollbar,
+    #mexc-orderbook-idr-modal *::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+  `;
+  document.head.appendChild(style);
+
   const modal = document.createElement('div');
+  modal.id = 'mexc-orderbook-idr-modal';
   Object.assign(modal.style, {
     position: 'fixed',
     right: '20px',
@@ -113,6 +130,8 @@
     backdropFilter: 'blur(6px)',
     resize: 'both',
     overflow: 'auto',
+    scrollbarWidth: 'none',
+    msOverflowStyle: 'none',
   });
 
   const header = document.createElement('div');
@@ -158,11 +177,21 @@
   const bidsTable = makeTable();
 
   const asksWrap = document.createElement('div');
-  Object.assign(asksWrap.style, { maxHeight: '200px', overflowY: 'auto' });
+  Object.assign(asksWrap.style, {
+    maxHeight: '200px',
+    overflowY: 'auto',
+    scrollbarWidth: 'none',
+    msOverflowStyle: 'none',
+  });
   asksWrap.appendChild(asksTable);
 
   const bidsWrap = document.createElement('div');
-  Object.assign(bidsWrap.style, { maxHeight: '200px', overflowY: 'auto' });
+  Object.assign(bidsWrap.style, {
+    maxHeight: '200px',
+    overflowY: 'auto',
+    scrollbarWidth: 'none',
+    msOverflowStyle: 'none',
+  });
   bidsWrap.appendChild(bidsTable);
 
   function updateHeaders() {
