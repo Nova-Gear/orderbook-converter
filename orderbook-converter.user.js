@@ -358,7 +358,7 @@
     .ob-cell-price-ask { color: var(--ob-color-ask); font-weight: 600; text-align: left; }
     .ob-cell-price-bid { color: var(--ob-color-bid); font-weight: 600; text-align: left; }
     .ob-cell-price-idr { color: var(--ob-text-gold-light); font-weight: 500; text-align: right; }
-    .ob-cell-vol-idr { color: var(--ob-text-secondary); text-align: right; }
+    .ob-cell-vol-idr { color: #f8fafc; font-weight: 500; text-align: right; }
     .ob-table-empty {
       text-align: center;
       padding: 16px;
