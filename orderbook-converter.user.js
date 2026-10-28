@@ -99,7 +99,11 @@
       position: fixed;
       z-index: 999999;
       width: 430px;
+      min-width: 320px;
       max-width: calc(100vw - 32px);
+      height: 560px;
+      min-height: 240px;
+      max-height: calc(100vh - 32px);
       background: var(--ob-bg-card);
       backdrop-filter: blur(16px) saturate(180%);
       -webkit-backdrop-filter: blur(16px) saturate(180%);
@@ -113,6 +117,9 @@
       box-sizing: border-box;
       overflow: hidden;
       user-select: none;
+      display: flex;
+      flex-direction: column;
+      resize: both;
     }
     .ob-modal *, .ob-modal *::before, .ob-modal *::after { box-sizing: border-box; }
     .ob-header {
@@ -240,13 +247,23 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
     }
-    .ob-section { display: flex; flex-direction: column; }
+    .ob-section {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
     .ob-section-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 2px 4px 4px 4px;
+      flex-shrink: 0;
     }
     .ob-section-badge {
       font-size: 10px;
@@ -257,13 +274,49 @@
     .ob-section-badge--ask { color: var(--ob-color-ask); }
     .ob-section-badge--bid { color: var(--ob-color-bid); }
     .ob-table-scroll {
-      max-height: 200px;
+      flex: 1;
+      min-height: 60px;
       overflow-y: auto;
       overflow-x: hidden;
       border-radius: var(--ob-radius-sm);
       background: rgba(0, 0, 0, 0.15);
       border: 1px solid rgba(255, 255, 255, 0.04);
     }
+    .ob-resize-handle {
+      position: absolute;
+      right: 2px;
+      bottom: 2px;
+      width: 14px;
+      height: 14px;
+      cursor: nwse-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--ob-text-muted);
+      opacity: 0.55;
+      transition: opacity 0.15s ease, color 0.15s ease;
+      z-index: 10;
+      user-select: none;
+    }
+    .ob-resize-handle:hover, .ob-resize-handle:active {
+      opacity: 1;
+      color: var(--ob-text-gold);
+    }
+    .ob-resize-handle svg {
+      pointer-events: none;
+    }
+    .ob-modal--minimized {
+      width: auto !important;
+      min-width: 280px !important;
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      resize: none !important;
+    }
+    .ob-modal--minimized .ob-rate-bar,
+    .ob-modal--minimized .ob-body,
+    .ob-modal--minimized .ob-resize-handle { display: none !important; }
+    .ob-modal--minimized .ob-header { border-bottom: none; }
     .ob-table {
       width: 100%;
       border-collapse: collapse;
@@ -313,10 +366,7 @@
       font-family: var(--ob-font-ui);
       font-style: italic;
     }
-    .ob-modal--minimized { width: auto !important; min-width: 280px; }
-    .ob-modal--minimized .ob-rate-bar,
-    .ob-modal--minimized .ob-body { display: none !important; }
-    .ob-modal--minimized .ob-header { border-bottom: none; }
+
     .ob-table-scroll::-webkit-scrollbar { width: 4px; }
     .ob-table-scroll::-webkit-scrollbar-track { background: transparent; }
     .ob-table-scroll::-webkit-scrollbar-thumb {
@@ -1417,9 +1467,9 @@
   console.log(`🚀 [Universal Orderbook] Exchange terdeteksi: ${adapter.name}`);
   injectGlobalStyle();
 
-  // Storage key for position & collapse state
+  // Storage key for position, size & collapse state
   const storageKey = `ob_modal_pos_${adapter.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-  let savedPref = { left: null, top: null, isMinimized: false };
+  let savedPref = { left: null, top: null, width: null, height: null, isMinimized: false };
   try {
     savedPref = JSON.parse(localStorage.getItem(storageKey) || '{}');
   } catch (e) { }
@@ -1440,6 +1490,11 @@
   } else {
     modal.style.right = '20px';
     modal.style.top = '120px';
+  }
+
+  if (!savedPref.isMinimized) {
+    if (savedPref.width) modal.style.width = savedPref.width;
+    if (savedPref.height) modal.style.height = savedPref.height;
   }
 
   modal.innerHTML = `
@@ -1510,6 +1565,12 @@
         </div>
       </div>
     </div>
+
+    <div class="ob-resize-handle" title="Tarik untuk mengubah ukuran modal">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        <path d="M8 2L2 8M9 5L5 9M9 8L8 9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </div>
   `;
 
   document.body.appendChild(modal);
@@ -1529,12 +1590,20 @@
 
   function saveState() {
     try {
+      const isMin = modal.classList.contains('ob-modal--minimized');
+      const rect = modal.getBoundingClientRect();
+      const currentW = isMin ? (savedPref.width || '430px') : `${Math.round(rect.width)}px`;
+      const currentH = isMin ? (savedPref.height || '560px') : `${Math.round(rect.height)}px`;
+      savedPref.width = currentW;
+      savedPref.height = currentH;
       localStorage.setItem(
         storageKey,
         JSON.stringify({
           left: modal.style.left,
           top: modal.style.top,
-          isMinimized: modal.classList.contains('ob-modal--minimized'),
+          width: currentW,
+          height: currentH,
+          isMinimized: isMin,
         })
       );
     } catch (e) { }
@@ -1569,11 +1638,67 @@
     saveState();
   });
 
+  // Resizable Pointer Handler (Smooth, responsive, cross-browser)
+  const resizeHandle = modal.querySelector('.ob-resize-handle');
+  let isResizing = false, rStartX = 0, rStartY = 0, initW = 0, initH = 0;
+
+  if (resizeHandle) {
+    resizeHandle.addEventListener('pointerdown', (e) => {
+      isResizing = true;
+      rStartX = e.clientX;
+      rStartY = e.clientY;
+      const rect = modal.getBoundingClientRect();
+      initW = rect.width;
+      initH = rect.height;
+      resizeHandle.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!isResizing) return;
+      const newW = Math.max(320, Math.min(window.innerWidth - 32, initW + (e.clientX - rStartX)));
+      const newH = Math.max(240, Math.min(window.innerHeight - 32, initH + (e.clientY - rStartY)));
+      modal.style.width = `${newW}px`;
+      modal.style.height = `${newH}px`;
+    });
+
+    window.addEventListener('pointerup', (e) => {
+      if (!isResizing) return;
+      isResizing = false;
+      try {
+        resizeHandle.releasePointerCapture(e.pointerId);
+      } catch (err) {}
+      saveState();
+    });
+  }
+
+  // Observe native corner resize if user resizes via CSS resize handle
+  if (window.ResizeObserver) {
+    let resizeTimer;
+    const ro = new ResizeObserver((entries) => {
+      if (modal.classList.contains('ob-modal--minimized') || isDragging || isResizing) return;
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(saveState, 250);
+        }
+      }
+    });
+    ro.observe(modal);
+  }
+
   btnMinimize.addEventListener('click', (e) => {
     e.stopPropagation();
     const min = modal.classList.toggle('ob-modal--minimized');
     btnMinimize.textContent = min ? '▢' : '—';
     btnMinimize.title = min ? 'Perbesar' : 'Perkecil';
+    if (min) {
+      modal.style.height = 'auto';
+    } else {
+      modal.style.height = savedPref.height || '560px';
+      modal.style.width = savedPref.width || '430px';
+    }
     saveState();
   });
 
