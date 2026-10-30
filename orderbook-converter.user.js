@@ -680,6 +680,10 @@
         }
       }
 
+      if (isAsk) {
+        items.sort((a, b) => a.price - b.price);
+        return items.slice(0, 20).sort((a, b) => b.price - a.price);
+      }
       items.sort((a, b) => b.price - a.price);
       return items.slice(0, 20);
     },
@@ -902,6 +906,10 @@
         }
       }
 
+      if (isAsk) {
+        items.sort((a, b) => a.price - b.price);
+        return items.slice(0, 20).sort((a, b) => b.price - a.price);
+      }
       items.sort((a, b) => b.price - a.price);
       return items.slice(0, 20);
     },
@@ -1070,6 +1078,10 @@
         }
       }
 
+      if (isAsk) {
+        items.sort((a, b) => a.price - b.price);
+        return items.slice(0, 20).sort((a, b) => b.price - a.price);
+      }
       items.sort((a, b) => b.price - a.price);
       return items.slice(0, 20);
     },
@@ -1698,6 +1710,7 @@
     } else {
       modal.style.height = savedPref.height || '560px';
       modal.style.width = savedPref.width || '430px';
+      scrollAsksToBottom();
     }
     saveState();
   });
@@ -1858,13 +1871,35 @@
     }
   }
 
-  // Update Loop with safety guard
+  // Helper to scroll asks to bottom (where spread is located)
+  function scrollAsksToBottom() {
+    if (!asksScroll) return;
+    asksScroll.scrollTop = asksScroll.scrollHeight;
+    requestAnimationFrame(() => {
+      if (asksScroll) asksScroll.scrollTop = asksScroll.scrollHeight;
+    });
+  }
+
+  // Update Loop with safety guard & smart auto-scroll
   let isUpdating = false;
+  let lastUrl = location.href;
+  let shouldScrollAsks = true;
+  let lastFirstAskPrice = null;
+
   function updateData() {
     if (isUpdating) return;
     isUpdating = true;
 
     try {
+      // Detect navigation / coin switch in SPA
+      const currentUrl = location.href;
+      if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        shouldScrollAsks = true;
+        if (asksTable) asksTable.__sig = null;
+        if (bidsTable) bidsTable.__sig = null;
+      }
+
       // Check if pair/currency changed in SPA
       const currentBase = adapter.getBaseCurrency();
       if (currentBase && currentBase !== BASE) {
@@ -1881,12 +1916,30 @@
       const asks = adapter.extract('ask') || [];
       const bids = adapter.extract('bid') || [];
 
+      // If asks are empty (e.g. while pair is changing or WS reconnecting), prepare to re-scroll once loaded
+      if (asks.length === 0) {
+        shouldScrollAsks = true;
+      } else {
+        const firstAsk = asks[0]?.price;
+        if (firstAsk && lastFirstAskPrice && Math.abs(firstAsk - lastFirstAskPrice) / lastFirstAskPrice > 0.3) {
+          shouldScrollAsks = true;
+        }
+        if (firstAsk) lastFirstAskPrice = firstAsk;
+      }
+
+      // Determine if user was already near the bottom before table update (within 40px)
+      const isNearBottom = asksScroll
+        ? (asksScroll.scrollHeight - asksScroll.scrollTop - asksScroll.clientHeight) <= 40
+        : false;
+
       reconcileTable(asksTable, asks, 'ask');
       reconcileTable(bidsTable, bids, 'bid');
 
-      if (asksScroll && !asksScroll.__scrolled && asks.length > 0) {
-        asksScroll.scrollTop = asksScroll.scrollHeight;
-        asksScroll.__scrolled = true;
+      if (asksScroll && asks.length > 0) {
+        if (shouldScrollAsks || isNearBottom) {
+          scrollAsksToBottom();
+          shouldScrollAsks = false;
+        }
       }
     } finally {
       isUpdating = false;
