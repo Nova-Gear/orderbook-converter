@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Crypto Orderbook → IDR Converter (All-in-One)
 // @namespace    http://tampermonkey.net/
-// @version      3.1.0
+// @version      3.2.0
 // @description  Universal realtime orderbook converter to IDR for Binance, Bybit, Kraken, Crypto.com, LBank, Gate.io, KuCoin, Bitget, MEXC, Ourbit, and OKX. Dark Glassmorphism UI, click-to-fill limit price.
 // @author       AntiGravity Senior Engineer
 // @match        https://www.binance.com/*/trade/*
@@ -524,9 +524,9 @@
   }
 
   // =========================================================================
-  // 📜 Exchange Orderbook Asks Auto-Scroll Helper (Binance & Gate.io)
+  // 📜 Exchange Orderbook Asks Auto-Scroll Helper (Universal for All Exchanges)
   // Ensures exchange's native asks container is scrolled to the bottom (spread area)
-  // so virtual lists (React/Mantine) render the lowest asks near market price.
+  // so virtual lists (React/Mantine/Vue) render the lowest asks near market price.
   // =========================================================================
   function autoScrollExchangeAsks(force = false) {
     try {
@@ -582,13 +582,189 @@
         }
       }
 
-      // 3. Generic fallback: find any ask element in the exchange DOM and scroll its nearest scrollable ancestor
+      // 3. MEXC Asks Container
+      if (href.includes('mexc.com') || href.includes('mexc.fm')) {
+        const mexcTargets = [
+          '[class*="orderbook_asksWrapper"]',
+          '[class*="asksWrapper"]',
+          '[class*="asksBox"]',
+          '[class*="sellWrapper"]',
+          '[class*="orderbook_asks"]',
+          '[class*="asks"]',
+        ];
+        for (const sel of mexcTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 4. Crypto.com Asks Container
+      if (href.includes('crypto.com')) {
+        const cryptoTargets = [
+          '.e-order-book-asks-list',
+          '[class*="asks-list"]',
+          '[class*="e-order-book-asks"]',
+        ];
+        for (const sel of cryptoTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 5. KuCoin Asks Container
+      if (href.includes('kucoin.com')) {
+        const kucoinTargets = [
+          '.orderbook-list-sell',
+          '[class*="orderbook-list-sell"]',
+          '[class*="sell-order-list"]',
+        ];
+        for (const sel of kucoinTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 6. Bitget Asks Container
+      if (href.includes('bitget.com') || href.includes('bitgetapp.com')) {
+        const bitgetTargets = [
+          '[class*="orderBook-sell"]',
+          '[class*="sellList"]',
+          '[class*="asksList"]',
+          '[class*="orderBook"] [class*="sell"]',
+        ];
+        for (const sel of bitgetTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 7. Ourbit Asks Container
+      if (href.includes('ourbit.com')) {
+        const ourbitTargets = [
+          '[class*="orderbook_asks"]',
+          '[class*="orderbook_asksWrapper"]',
+          '[class*="asksWrapper"]',
+          '[class*="asks"]',
+        ];
+        for (const sel of ourbitTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 8. OKX Asks Container
+      if (href.includes('okx.com')) {
+        const okxTargets = [
+          '[data-qa*="order-book-asks"]',
+          '[class*="order-book-asks"]',
+          '[class*="orderbook-asks"]',
+          '[class*="asks-list"]',
+          '[class*="asksBox"]',
+        ];
+        for (const sel of okxTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 9. LBank Asks Container
+      if (href.includes('lbank.com') || href.includes('lbank.info')) {
+        const lbankTargets = [
+          '#orderbook_container .orderlist.sell',
+          '.orderlist.sell',
+          '[class*="order_book_list"] [class*="sell"]',
+          '.lbk-trading-layout-chart-orderbook [class*="sell"]',
+        ];
+        for (const sel of lbankTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 10. Kraken Asks Container
+      if (href.includes('kraken.com')) {
+        const krakenTargets = [
+          '[data-testid*="orderbook-asks"]',
+          '[data-testid*="order-book-asks"]',
+          'div[class*="order-book"] [class*="negative"]',
+        ];
+        for (const sel of krakenTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 11. Generic fallback: find any ask element in the exchange DOM and scroll its nearest scrollable ancestor
       const sampleAsk = document.querySelector(
-        href.includes('binance.com')
-          ? '.orderbook-list.orderbook-ask .row-content, .orderbook-ask div'
-          : href.includes('gate.io') || href.includes('gate.com')
-          ? '[class*="ask-"], [class*="sell-"], div.depth-list-item, [class*="listItem-"]'
-          : '[class*="ask" i], [class*="sell" i]'
+        '.orderbook-list.orderbook-ask .row-content, .orderbook-ask div, ' +
+        '[class*="ask-"], [class*="sell-"], div.depth-list-item, [class*="listItem-"], ' +
+        '.bg-contentTradeSell, .e-order-book-asks-list .e-list-item, [class*="orderbookItem"] [class*="sell"], ' +
+        '[class*="orderbook_price"][class*="sell"], [data-qa*="order-book-asks"] [role="row"], ' +
+        'span[class*="bg-order-book-"][class*="negative"], .orderlist .row.sell'
       );
 
       if (sampleAsk) {
@@ -633,7 +809,14 @@
     },
     extract: (side) => {
       const isAsk = side === 'ask';
-      const rows = Array.from(document.querySelectorAll('div.flex.items-center.relative'));
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
+      let rows = Array.from(document.querySelectorAll('div.flex.items-center.relative'));
+      if (isAsk && rows.length === 0) {
+        autoScrollExchangeAsks(true);
+        rows = Array.from(document.querySelectorAll('div.flex.items-center.relative'));
+      }
       const items = [];
 
       for (const row of rows) {
@@ -684,10 +867,17 @@
     },
     extract: (side) => {
       const isAsk = side === 'ask';
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
       const containerSelector = isAsk
         ? '.e-order-book-asks-list, [class*="asks-list"]'
         : '.e-order-book-bids-list, [class*="bids-list"]';
-      const container = document.querySelector(containerSelector);
+      let container = document.querySelector(containerSelector);
+      if (isAsk && (!container || container.children.length === 0)) {
+        autoScrollExchangeAsks(true);
+        container = document.querySelector(containerSelector);
+      }
       let rows = container ? Array.from(container.querySelectorAll('.e-list-item, [role="row"]')) : [];
 
       if (rows.length === 0) {
@@ -824,6 +1014,9 @@
     },
     extract: (side) => {
       try {
+        if (side === 'ask') {
+          autoScrollExchangeAsks();
+        }
         const store = win.__store?.spotOrderbookStore;
         if (!store || typeof store.getState !== 'function') return [];
         const rawList = side === 'ask'
@@ -913,6 +1106,9 @@
       return 2;
     },
     extract: (side) => {
+      if (side === 'ask') {
+        autoScrollExchangeAsks();
+      }
       // 1. Coba React Fiber
       const fiber = getLBankFiber();
       let sourceList = [];
@@ -923,6 +1119,9 @@
 
       // 2. Fallback ke DOM elements (Tanpa request HTTP / Zero API Call)
       if (sourceList.length === 0) {
+        if (side === 'ask') {
+          autoScrollExchangeAsks(true);
+        }
         const domRows = Array.from(
           document.querySelectorAll(side === 'ask' ? '.orderlist .row.sell, [class*="sell"]' : '.orderlist .row.buy, [class*="buy"]')
         );
@@ -1053,6 +1252,9 @@
     },
     extract: (side) => {
       const isAsk = side === 'ask';
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
       const containerSelector = isAsk ? '.orderbook-list-sell, [class*="sell"]' : '.orderbook-list-buy, [class*="buy"]';
       const container =
         document.querySelector(containerSelector) ||
@@ -1162,8 +1364,15 @@
     detectPrecision: () => 2,
     extract: (side) => {
       const isAsk = side === 'ask';
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
       const targetBg = isAsk ? '.bg-contentTradeSell' : '.bg-contentTradeBuy';
-      const bars = Array.from(document.querySelectorAll(targetBg));
+      let bars = Array.from(document.querySelectorAll(targetBg));
+      if (isAsk && bars.length === 0) {
+        autoScrollExchangeAsks(true);
+        bars = Array.from(document.querySelectorAll(targetBg));
+      }
       const items = [];
       const seen = new Set();
 
@@ -1220,11 +1429,17 @@
     },
     extract: (side) => {
       const isAsk = side === 'ask';
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
       const wrapper = document.querySelector(
         isAsk
           ? '[class*="asksBox"], [class*="asks"], [class*="orderbook_asksWrapper"], [class*="sellWrapper"]'
           : '[class*="bidsBox"], [class*="bids"], [class*="orderbook_bidsWrapper"], [class*="buyWrapper"]'
       );
+      if (isAsk && (!wrapper || wrapper.children.length === 0)) {
+        autoScrollExchangeAsks(true);
+      }
 
       let rows = [];
       if (wrapper) {
@@ -1313,6 +1528,9 @@
     },
     extract: (side) => {
       const isAsk = side === 'ask';
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
       const askSelectors = [
         '[class*="orderbook_asks"]',
         '[class*="orderbook_asksWrapper"]',
@@ -1474,6 +1692,9 @@
     },
     extract: (side) => {
       const isAsk = side === 'ask';
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
 
       // 1. Coba Passive WebSocket data yang sudah diterima tab browser
       let sourceList = isAsk ? okxWsAsks : okxWsBids;
@@ -2020,6 +2241,15 @@
       } else if (adapter && adapter.name === 'LBank') {
         const m = path.match(/\/trade\/([a-z0-9]+)[_\-]([a-z0-9]+)/i);
         if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      } else if (adapter && adapter.name === 'Kraken Pro') {
+        const m = path.match(/\/(?:app\/)?trade\/(?:(?:margin|futures)-)?([a-z0-9]+)-([a-z0-9]+)/i);
+        if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      } else if (adapter && adapter.name === 'Crypto.com') {
+        const m = path.match(/\/exchange\/trade\/(?:spot\/)?([a-z0-9]+)[_\-]([a-z0-9]+)/i);
+        if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      } else if (adapter && adapter.name === 'Ourbit') {
+        const m = path.match(/\/exchange\/([A-Za-z0-9_\-]+)/i);
+        if (m) return m[1].toUpperCase();
       }
 
       const gen = path.match(/\/(?:trade|exchange|spot)(?:\/spot)?\/([A-Za-z0-9]+)[_\-\/]([A-Za-z0-9]+)/i);
