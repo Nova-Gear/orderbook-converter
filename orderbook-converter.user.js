@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Crypto Orderbook → IDR Converter (All-in-One)
 // @namespace    http://tampermonkey.net/
-// @version      3.0.0
+// @version      3.1.0
 // @description  Universal realtime orderbook converter to IDR for Binance, Bybit, Kraken, Crypto.com, LBank, Gate.io, KuCoin, Bitget, MEXC, Ourbit, and OKX. Dark Glassmorphism UI, click-to-fill limit price.
 // @author       AntiGravity Senior Engineer
 // @match        https://www.binance.com/*/trade/*
@@ -524,6 +524,95 @@
   }
 
   // =========================================================================
+  // 📜 Exchange Orderbook Asks Auto-Scroll Helper (Binance & Gate.io)
+  // Ensures exchange's native asks container is scrolled to the bottom (spread area)
+  // so virtual lists (React/Mantine) render the lowest asks near market price.
+  // =========================================================================
+  function autoScrollExchangeAsks(force = false) {
+    try {
+      const href = location.href;
+
+      // 1. Binance Asks Container
+      if (href.includes('binance.com')) {
+        const binanceTargets = [
+          '.orderbook-list.orderbook-ask',
+          '.orderbook-ask',
+          '[class*="orderbook-ask"]',
+          '[class*="orderbookAsks"]',
+          '[class*="orderBookAsks"]',
+        ];
+        for (const sel of binanceTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 2. Gate.io Asks Container
+      if (href.includes('gate.io') || href.includes('gate.com')) {
+        const gateTargets = [
+          '[class*="asksBox"]',
+          '[class*="orderbook_asksWrapper"]',
+          '[class*="orderbook_asks"]',
+          '[class*="asksWrapper"]',
+          '[class*="sellWrapper"]',
+          '.depth-list-wrap',
+          '[class*="depth-list"]',
+          '[class*="asks"] .mantine-ScrollArea-viewport',
+          '[class*="sell"] .mantine-ScrollArea-viewport',
+        ];
+        for (const sel of gateTargets) {
+          const el = document.querySelector(sel);
+          if (el && el.scrollHeight > el.clientHeight) {
+            const isAtTop = el.scrollTop <= 5;
+            const isNotAtBottom = el.scrollTop < el.scrollHeight - el.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              el.scrollTop = el.scrollHeight;
+              el.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            return;
+          }
+        }
+      }
+
+      // 3. Generic fallback: find any ask element in the exchange DOM and scroll its nearest scrollable ancestor
+      const sampleAsk = document.querySelector(
+        href.includes('binance.com')
+          ? '.orderbook-list.orderbook-ask .row-content, .orderbook-ask div'
+          : href.includes('gate.io') || href.includes('gate.com')
+          ? '[class*="ask-"], [class*="sell-"], div.depth-list-item, [class*="listItem-"]'
+          : '[class*="ask" i], [class*="sell" i]'
+      );
+
+      if (sampleAsk) {
+        let parent = sampleAsk.parentElement;
+        while (parent && parent !== document.body && parent !== document.documentElement) {
+          if (parent.closest && parent.closest('.ob-modal')) break;
+          const style = window.getComputedStyle(parent);
+          const overflowY = style.overflowY;
+          if ((overflowY === 'auto' || overflowY === 'scroll') && parent.scrollHeight > parent.clientHeight) {
+            const isAtTop = parent.scrollTop <= 5;
+            const isNotAtBottom = parent.scrollTop < parent.scrollHeight - parent.clientHeight - 10;
+            if (force || isAtTop || isNotAtBottom) {
+              parent.scrollTop = parent.scrollHeight;
+              parent.dispatchEvent(new Event('scroll', { bubbles: true }));
+            }
+            break;
+          }
+          parent = parent.parentElement;
+        }
+      }
+    } catch (e) {}
+  }
+
+  // =========================================================================
   // 🏢 EXCHANGE ADAPTERS (Strategy Pattern)
   // =========================================================================
 
@@ -666,8 +755,15 @@
     },
     extract: (side) => {
       const isAsk = side === 'ask';
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
       const sel = isAsk ? '.orderbook-list.orderbook-ask .row-content' : '.orderbook-list.orderbook-bid .row-content';
-      const rows = Array.from(document.querySelectorAll(sel));
+      let rows = Array.from(document.querySelectorAll(sel));
+      if (isAsk && rows.length === 0) {
+        autoScrollExchangeAsks(true);
+        rows = Array.from(document.querySelectorAll(sel));
+      }
       const items = [];
 
       for (const r of rows) {
@@ -888,8 +984,15 @@
     detectPrecision: () => 2,
     extract: (side) => {
       const isAsk = side === 'ask';
+      if (isAsk) {
+        autoScrollExchangeAsks();
+      }
       const selector = isAsk ? '[class*="ask-"], [class*="sell-"]' : '[class*="bid-"], [class*="buy-"]';
-      const rows = Array.from(document.querySelectorAll(selector)).map((el) => el.closest('tr, [class*="listItem-"], div.depth-list-item')).filter(Boolean);
+      let rows = Array.from(document.querySelectorAll(selector)).map((el) => el.closest('tr, [class*="listItem-"], div.depth-list-item')).filter(Boolean);
+      if (isAsk && rows.length === 0) {
+        autoScrollExchangeAsks(true);
+        rows = Array.from(document.querySelectorAll(selector)).map((el) => el.closest('tr, [class*="listItem-"], div.depth-list-item')).filter(Boolean);
+      }
       const items = [];
       const seen = new Set();
 
@@ -1682,6 +1785,7 @@
         resizeHandle.releasePointerCapture(e.pointerId);
       } catch (err) {}
       saveState();
+      scrollAsksToBottom();
     });
   }
 
@@ -1878,24 +1982,103 @@
     requestAnimationFrame(() => {
       if (asksScroll) asksScroll.scrollTop = asksScroll.scrollHeight;
     });
+    setTimeout(() => {
+      if (asksScroll) asksScroll.scrollTop = asksScroll.scrollHeight;
+    }, 50);
+  }
+
+  // Active pair detection for seamless coin-switching
+  function getCurrentPair() {
+    try {
+      const href = location.href;
+      const path = location.pathname;
+
+      if (adapter && adapter.name === 'Binance') {
+        const m = href.match(/\/trade\/([A-Za-z0-9]+)_([A-Za-z0-9]+)/i);
+        if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      } else if (adapter && adapter.name === 'Gate.io') {
+        const m = path.match(/\/trade\/([A-Za-z0-9]+)_([A-Za-z0-9]+)/i);
+        if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      } else if (adapter && adapter.name === 'Bybit') {
+        const parts = path.split('/');
+        const spotIdx = parts.indexOf('spot');
+        if (spotIdx !== -1 && spotIdx + 2 < parts.length) {
+          return `${parts[spotIdx + 1]}_${parts[spotIdx + 2]}`.toUpperCase();
+        }
+      } else if (adapter && adapter.name === 'KuCoin') {
+        const m = path.match(/\/trade\/([A-Za-z0-9]+)[_\-]([A-Za-z0-9]+)/i);
+        if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      } else if (adapter && adapter.name === 'OKX') {
+        const m = path.match(/trade-(?:spot|swap|futures)\/([a-z0-9_\-]+)/i);
+        if (m) return m[1].toUpperCase();
+      } else if (adapter && adapter.name === 'MEXC') {
+        const m = path.match(/exchange\/([A-Za-z0-9]+)_([A-Za-z0-9]+)/i);
+        if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      } else if (adapter && adapter.name === 'Bitget') {
+        const m = path.match(/\/(?:spot|trade)\/([A-Za-z0-9]+)_([A-Za-z0-9]+)/i);
+        if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      } else if (adapter && adapter.name === 'LBank') {
+        const m = path.match(/\/trade\/([a-z0-9]+)[_\-]([a-z0-9]+)/i);
+        if (m) return `${m[1]}_${m[2]}`.toUpperCase();
+      }
+
+      const gen = path.match(/\/(?:trade|exchange|spot)(?:\/spot)?\/([A-Za-z0-9]+)[_\-\/]([A-Za-z0-9]+)/i);
+      if (gen) return `${gen[1]}_${gen[2]}`.toUpperCase();
+    } catch (e) {}
+    return location.origin + location.pathname;
   }
 
   // Update Loop with safety guard & smart auto-scroll
   let isUpdating = false;
   let lastUrl = location.href;
-  let shouldScrollAsks = true;
-  let lastFirstAskPrice = null;
+  let lastPair = getCurrentPair();
+  let forceScrollUntil = Date.now() + 3500;
+  let hadEmptyAsks = true;
+
+  function triggerCoinSwitch() {
+    forceScrollUntil = Date.now() + 3500;
+    autoScrollExchangeAsks(true);
+    if (asksTable) asksTable.__sig = null;
+    if (bidsTable) bidsTable.__sig = null;
+    setTimeout(updateData, 50);
+  }
+
+  // Intercept HTML5 History API for instant zero-delay navigation detection
+  try {
+    const origPush = history.pushState;
+    const origReplace = history.replaceState;
+    if (typeof origPush === 'function') {
+      history.pushState = function (...args) {
+        const res = origPush.apply(this, args);
+        triggerCoinSwitch();
+        return res;
+      };
+    }
+    if (typeof origReplace === 'function') {
+      history.replaceState = function (...args) {
+        const res = origReplace.apply(this, args);
+        triggerCoinSwitch();
+        return res;
+      };
+    }
+    window.addEventListener('popstate', triggerCoinSwitch);
+    window.addEventListener('hashchange', triggerCoinSwitch);
+  } catch (e) {}
 
   function updateData() {
     if (isUpdating) return;
     isUpdating = true;
 
     try {
-      // Detect navigation / coin switch in SPA
       const currentUrl = location.href;
-      if (currentUrl !== lastUrl) {
+      const currentPair = getCurrentPair();
+
+      // Detect navigation / coin switch in SPA
+      if (currentPair !== lastPair || currentUrl !== lastUrl) {
+        lastPair = currentPair;
         lastUrl = currentUrl;
-        shouldScrollAsks = true;
+        forceScrollUntil = Date.now() + 3500;
+        autoScrollExchangeAsks(true);
         if (asksTable) asksTable.__sig = null;
         if (bidsTable) bidsTable.__sig = null;
       }
@@ -1913,32 +2096,29 @@
         precision = adapter.detectPrecision();
       }
 
+      const isForcingScroll = Date.now() < forceScrollUntil;
+      if (isForcingScroll) {
+        autoScrollExchangeAsks(true);
+      }
+
       const asks = adapter.extract('ask') || [];
       const bids = adapter.extract('bid') || [];
 
-      // If asks are empty (e.g. while pair is changing or WS reconnecting), prepare to re-scroll once loaded
-      if (asks.length === 0) {
-        shouldScrollAsks = true;
-      } else {
-        const firstAsk = asks[0]?.price;
-        if (firstAsk && lastFirstAskPrice && Math.abs(firstAsk - lastFirstAskPrice) / lastFirstAskPrice > 0.3) {
-          shouldScrollAsks = true;
-        }
-        if (firstAsk) lastFirstAskPrice = firstAsk;
-      }
-
-      // Determine if user was already near the bottom before table update (within 40px)
+      // Determine if user was already near the bottom before table update (within 45px)
       const isNearBottom = asksScroll
-        ? (asksScroll.scrollHeight - asksScroll.scrollTop - asksScroll.clientHeight) <= 40
+        ? (asksScroll.scrollHeight - asksScroll.scrollTop - asksScroll.clientHeight) <= 45
         : false;
+
+      // Track if asks transitioned from empty to populated
+      const justPopulated = hadEmptyAsks && asks.length > 0;
+      hadEmptyAsks = asks.length === 0;
 
       reconcileTable(asksTable, asks, 'ask');
       reconcileTable(bidsTable, bids, 'bid');
 
       if (asksScroll && asks.length > 0) {
-        if (shouldScrollAsks || isNearBottom) {
+        if (isForcingScroll || justPopulated || isNearBottom) {
           scrollAsksToBottom();
-          shouldScrollAsks = false;
         }
       }
     } finally {
@@ -1959,8 +2139,14 @@
   }
   const debouncedUpdate = debounce(updateData, 150);
 
-  // Safe MutationObserver: only observe specific orderbook container, ignore our own modal mutations
+  // Safe MutationObserver: periodically re-checks to observe dynamically mounted orderbooks on coin switch
+  let currentObserved = null;
   function initSafeObserver() {
+    if (currentObserved && currentObserved.isConnected) {
+      setTimeout(initSafeObserver, 2000);
+      return;
+    }
+
     const obContainer =
       document.querySelector('.order-book-component') ||
       document.querySelector('.e-order-book') ||
@@ -1976,6 +2162,7 @@
       return;
     }
 
+    currentObserved = obContainer;
     const obs = new MutationObserver((mutations) => {
       // Ignore mutations originating from inside our own modal
       const isSelf = mutations.every((m) => modal.contains(m.target));
@@ -1984,6 +2171,7 @@
     });
 
     obs.observe(obContainer, { subtree: true, childList: true, characterData: true });
+    setTimeout(initSafeObserver, 3000);
   }
 
   initSafeObserver();
