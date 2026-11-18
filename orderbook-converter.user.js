@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Universal Crypto Orderbook → IDR Converter (All-in-One)
 // @namespace    http://tampermonkey.net/
-// @version      3.2.0
+// @version      3.3.0
 // @description  Universal realtime orderbook converter to IDR for Binance, Bybit, Kraken, Crypto.com, LBank, Gate.io, KuCoin, Bitget, MEXC, Ourbit, and OKX. Dark Glassmorphism UI, click-to-fill limit price.
 // @author       AntiGravity Senior Engineer
 // @match        https://www.binance.com/*/trade/*
@@ -52,6 +52,8 @@
 // @match        https://*.okx.com/*/trade-swap/*
 // @match        https://*.okx.com/*
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @grant        unsafeWindow
 // @connect      indodax.com
 // @connect      192.168.1.170
@@ -113,6 +115,7 @@
       color: var(--ob-text-primary);
       font-family: var(--ob-font-ui);
       font-size: 12px;
+      --ob-font-size: 11px;
       line-height: 1.4;
       box-sizing: border-box;
       overflow: hidden;
@@ -215,6 +218,10 @@
       background: rgba(255, 255, 255, 0.1);
       color: var(--ob-text-primary);
     }
+    .ob-btn-icon--active {
+      background: rgba(245, 158, 11, 0.18);
+      color: var(--ob-text-gold-light);
+    }
     .ob-rate-bar {
       display: flex;
       align-items: center;
@@ -222,7 +229,88 @@
       padding: 6px 12px;
       background: rgba(0, 0, 0, 0.25);
       border-bottom: 1px solid var(--ob-border-subtle);
+      font-size: max(10px, var(--ob-font-size, 11px));
+    }
+    .ob-settings-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 12px;
+      background: rgba(20, 26, 40, 0.95);
+      border-bottom: 1px solid var(--ob-border-subtle);
       font-size: 11px;
+      color: var(--ob-text-secondary);
+    }
+    .ob-settings-bar--open {
+      display: flex;
+    }
+    .ob-settings-label {
+      font-weight: 600;
+      color: var(--ob-text-secondary);
+      white-space: nowrap;
+    }
+    .ob-font-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      justify-content: flex-end;
+    }
+    .ob-font-btn {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid var(--ob-border-subtle);
+      color: var(--ob-text-primary);
+      width: 22px;
+      height: 22px;
+      border-radius: var(--ob-radius-sm);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 0;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      transition: all 0.15s ease;
+    }
+    .ob-font-btn:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: var(--ob-border-hover);
+    }
+    .ob-font-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    .ob-font-slider {
+      width: 96px;
+      accent-color: var(--ob-text-gold);
+      cursor: pointer;
+      margin: 0;
+    }
+    .ob-font-value {
+      min-width: 34px;
+      text-align: center;
+      font-family: var(--ob-font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ob-text-gold-light);
+    }
+    .ob-font-reset {
+      background: transparent;
+      border: 1px solid var(--ob-border-subtle);
+      color: var(--ob-text-muted);
+      height: 22px;
+      padding: 0 6px;
+      border-radius: var(--ob-radius-sm);
+      font-size: 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .ob-font-reset:hover {
+      color: var(--ob-text-primary);
+      border-color: var(--ob-border-hover);
+      background: rgba(255, 255, 255, 0.08);
     }
     .ob-rate-pill {
       display: flex;
@@ -266,7 +354,7 @@
       flex-shrink: 0;
     }
     .ob-section-badge {
-      font-size: 10px;
+      font-size: max(9px, calc(var(--ob-font-size, 11px) - 1px));
       font-weight: 700;
       letter-spacing: 0.6px;
       text-transform: uppercase;
@@ -314,6 +402,7 @@
       resize: none !important;
     }
     .ob-modal--minimized .ob-rate-bar,
+    .ob-modal--minimized .ob-settings-bar,
     .ob-modal--minimized .ob-body,
     .ob-modal--minimized .ob-resize-handle { display: none !important; }
     .ob-modal--minimized .ob-header { border-bottom: none; }
@@ -321,7 +410,7 @@
       width: 100%;
       border-collapse: collapse;
       font-family: var(--ob-font-mono);
-      font-size: 11px;
+      font-size: var(--ob-font-size, 11px);
     }
     .ob-table thead th {
       position: sticky;
@@ -330,7 +419,7 @@
       background: #171d28;
       color: var(--ob-text-secondary);
       font-family: var(--ob-font-ui);
-      font-size: 10px;
+      font-size: max(9px, calc(var(--ob-font-size, 11px) - 1px));
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -1803,13 +1892,38 @@
   console.log(`🚀 [Universal Orderbook] Exchange terdeteksi: ${adapter.name}`);
   injectGlobalStyle();
 
-  // Storage key for position, size & collapse state
+  // Storage key for position, size, collapse & font-size preference
   const storageKey = `ob_modal_pos_${adapter.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
-  let savedPref = { left: null, top: null, width: null, height: null, isMinimized: false };
+  const GLOBAL_FONT_SIZE_KEY = 'ob_global_font_size';
+  const DEFAULT_FONT_SIZE = 11;
+  const MIN_FONT_SIZE = 9;
+  const MAX_FONT_SIZE = 20;
+
+  let savedPref = { left: null, top: null, width: null, height: null, isMinimized: false, fontSize: null };
   try {
     savedPref = JSON.parse(localStorage.getItem(storageKey) || '{}');
   } catch (e) { }
 
+  function clampFontSize(val) {
+    const parsed = Number(val);
+    if (!Number.isFinite(parsed)) return DEFAULT_FONT_SIZE;
+    return Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, Math.round(parsed)));
+  }
+
+  function loadFontSize() {
+    try {
+      if (typeof GM_getValue === 'function') {
+        const gmVal = GM_getValue(GLOBAL_FONT_SIZE_KEY, null);
+        if (gmVal !== null && gmVal !== undefined) return clampFontSize(gmVal);
+      }
+    } catch (e) { }
+    if (savedPref.fontSize !== null && savedPref.fontSize !== undefined) {
+      return clampFontSize(savedPref.fontSize);
+    }
+    return DEFAULT_FONT_SIZE;
+  }
+
+  let currentFontSize = loadFontSize();
   let BASE = adapter.getBaseCurrency() || 'USDT';
   let RATE_IDR = 0;
   let precision = adapter.detectPrecision ? adapter.detectPrecision() : 2;
@@ -1818,6 +1932,7 @@
   const modal = document.createElement('div');
   modal.className = `ob-modal ${savedPref.isMinimized ? 'ob-modal--minimized' : ''}`;
   modal.id = `ob-modal-${adapter.name.toLowerCase().replace(/\s+/g, '-')}`;
+  modal.style.setProperty('--ob-font-size', `${currentFontSize}px`);
 
   if (savedPref.left && savedPref.top) {
     modal.style.left = savedPref.left;
@@ -1844,6 +1959,7 @@
         </span>
       </div>
       <div class="ob-header-actions">
+        <button class="ob-btn-icon ob-btn-settings" title="Pengaturan Font Size">⚙</button>
         <button class="ob-btn-icon ob-btn-refresh" title="Perbarui Kurs">↻</button>
         <button class="ob-btn-icon ob-btn-minimize" title="${savedPref.isMinimized ? 'Perbesar' : 'Perkecil'}">
           ${savedPref.isMinimized ? '▢' : '—'}
@@ -1858,6 +1974,17 @@
         <span class="ob-rate-value">Memuat...</span>
       </div>
       <span class="ob-rate-source">Checking...</span>
+    </div>
+
+    <div class="ob-settings-bar">
+      <span class="ob-settings-label">Font Size</span>
+      <div class="ob-font-controls">
+        <button type="button" class="ob-font-btn ob-btn-font-dec" title="Perkecil font">−</button>
+        <input type="range" class="ob-font-slider" min="${MIN_FONT_SIZE}" max="${MAX_FONT_SIZE}" step="1" value="${currentFontSize}" />
+        <button type="button" class="ob-font-btn ob-btn-font-inc" title="Perbesar font">+</button>
+        <span class="ob-font-value">${currentFontSize}px</span>
+        <button type="button" class="ob-font-reset" title="Reset ke default (${DEFAULT_FONT_SIZE}px)">Reset</button>
+      </div>
     </div>
 
     <div class="ob-body">
@@ -1916,6 +2043,13 @@
   const rateValueEl = modal.querySelector('.ob-rate-value');
   const rateSourceEl = modal.querySelector('.ob-rate-source');
   const statusDot = modal.querySelector('.ob-status-dot');
+  const btnSettings = modal.querySelector('.ob-btn-settings');
+  const settingsBar = modal.querySelector('.ob-settings-bar');
+  const btnFontDec = modal.querySelector('.ob-btn-font-dec');
+  const btnFontInc = modal.querySelector('.ob-btn-font-inc');
+  const fontSlider = modal.querySelector('.ob-font-slider');
+  const fontValueEl = modal.querySelector('.ob-font-value');
+  const btnFontReset = modal.querySelector('.ob-font-reset');
   const btnMinimize = modal.querySelector('.ob-btn-minimize');
   const btnRefresh = modal.querySelector('.ob-btn-refresh');
   const btnClose = modal.querySelector('.ob-btn-close');
@@ -1932,6 +2066,7 @@
       const currentH = isMin ? (savedPref.height || '560px') : `${Math.round(rect.height)}px`;
       savedPref.width = currentW;
       savedPref.height = currentH;
+      savedPref.fontSize = currentFontSize;
       localStorage.setItem(
         storageKey,
         JSON.stringify({
@@ -1940,10 +2075,33 @@
           width: currentW,
           height: currentH,
           isMinimized: isMin,
+          fontSize: currentFontSize,
         })
       );
     } catch (e) { }
   }
+
+  function applyFontSize(size, persist = true) {
+    currentFontSize = clampFontSize(size);
+    modal.style.setProperty('--ob-font-size', `${currentFontSize}px`);
+    if (fontSlider) fontSlider.value = String(currentFontSize);
+    if (fontValueEl) fontValueEl.textContent = `${currentFontSize}px`;
+    if (btnFontDec) btnFontDec.disabled = currentFontSize <= MIN_FONT_SIZE;
+    if (btnFontInc) btnFontInc.disabled = currentFontSize >= MAX_FONT_SIZE;
+
+    if (persist) {
+      try {
+        if (typeof GM_setValue === 'function') {
+          GM_setValue(GLOBAL_FONT_SIZE_KEY, currentFontSize);
+        }
+      } catch (e) { }
+      saveState();
+    }
+    scrollAsksToBottom();
+  }
+
+  // Sync initial font button states without re-saving
+  applyFontSize(currentFontSize, false);
 
   // Draggable Handler
   let isDragging = false, startX = 0, startY = 0, initL = 0, initT = 0;
@@ -2024,6 +2182,42 @@
     });
     ro.observe(modal);
   }
+
+  btnSettings.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Jika modal sedang minimize, buka dulu agar panel pengaturan langsung terlihat
+    if (modal.classList.contains('ob-modal--minimized')) {
+      modal.classList.remove('ob-modal--minimized');
+      btnMinimize.textContent = '—';
+      btnMinimize.title = 'Perkecil';
+      modal.style.height = savedPref.height || '560px';
+      modal.style.width = savedPref.width || '430px';
+      saveState();
+    }
+    const isOpen = settingsBar.classList.toggle('ob-settings-bar--open');
+    btnSettings.classList.toggle('ob-btn-icon--active', isOpen);
+    scrollAsksToBottom();
+  });
+
+  btnFontDec.addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyFontSize(currentFontSize - 1);
+  });
+
+  btnFontInc.addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyFontSize(currentFontSize + 1);
+  });
+
+  fontSlider.addEventListener('input', (e) => {
+    e.stopPropagation();
+    applyFontSize(Number(e.target.value));
+  });
+
+  btnFontReset.addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyFontSize(DEFAULT_FONT_SIZE);
+  });
 
   btnMinimize.addEventListener('click', (e) => {
     e.stopPropagation();
